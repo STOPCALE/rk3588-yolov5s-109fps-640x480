@@ -69,7 +69,7 @@ target_link_libraries(my_rknn_yolov5_demo PRIVATE
 )
 
 install(TARGETS my_rknn_yolov5_demo DESTINATION .)
-install(FILES ""
+install(FILES 
         ${RKNN_RT_LIB}
         ${RGA_LIB}
         DESTINATION lib

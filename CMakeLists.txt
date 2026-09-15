@@ -68,8 +68,12 @@ target_link_libraries(my_rknn_yolov5_demo PRIVATE
         Threads::Threads
 )
 
-install(TARGETS my_rknn_yolov5_demo DESTINATION ./)
-install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
-install(PROGRAMS ${RGA_LIB} DESTINATION lib)
-install(DIRECTORY model DESTINATION ./)
+install(TARGETS my_rknn_yolov5_demo DESTINATION .)
+install(FILES ""
+        ${RKNN_RT_LIB}
+        ${RGA_LIB}
+        DESTINATION lib
+)
+
+install(DIRECTORY model DESTINATION .)
 

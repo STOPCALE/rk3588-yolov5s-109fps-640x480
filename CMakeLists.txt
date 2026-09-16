@@ -46,10 +46,10 @@ find_package(Threads REQUIRED)
 
 # ---------- 目标 ----------
 add_executable(my_rknn_yolov5_demo
-        src/main.cc
+        # src/main.cc
         # src/postprocess.cc        # 还没写的先注释掉(CMake 要求列出的文件必须存在)
         # src/preprocess.cc
-        # src/rkYolov5s.cc
+        src/rkYolov5s.cc
         # src/uart.c
 )
 

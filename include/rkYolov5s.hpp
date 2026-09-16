@@ -3,48 +3,48 @@
 
 #include <string>
 #include <mutex>
+#include <vector>
 #include "rknn_api.h"
 #include "opencv2/core/core.hpp"
 #include "FrameResult.hpp"
 
-class rkYolov5s
+class rkYolov5s 
 {
 public:
-    rkYolov5s(const std::string &model_path);
+    explicit rkYolov5s(const std::string& model_path);
     ~rkYolov5s();
 
+    //share_weight=false 在init时
+    //share_weight=true 在dup_context时
     int init(rknn_context *ctx_in = nullptr, bool share_weight = false);
-    rknn_context *get_pctx();
 
-    // 改这里：原来是 cv::Mat infer(cv::Mat &orig_img);
+    //需要其做dup
+    rknn_context get_pctx();
+
     FrameResult infer(cv::Mat &orig_img);
-
-    static void set_uart_fd(int fd) { uart_fd = fd; }
 
 private:
     std::string model_path;
+    float nms_threshold = 0.45f;
+    float box_conf_threshold = 0.25f;
 
-    float nms_threshold;
-    float box_conf_threshold;
+    //rknn_init会拷贝，之后释放
+    unsigned char         *model_data   = nullptr;
+    rknn_context          ctx           = 0;
+    rknn_input_output_num io_num        = {};
+    rknn_tensor_attr      *input_attrs  = nullptr;
+    rknn_tensor_attr      *output_attrs = nullptr;
+    rknn_input            inputs[1]     = {};
 
-    unsigned char *model_data;
-    rknn_context ctx;
-    rknn_input_output_num io_num;
-    rknn_tensor_attr *input_attrs;
-    rknn_tensor_attr *output_attrs;
-    rknn_input inputs[1];
-    int ret;
+    //模型输入尺寸，从attrs推导
+    int channel =0, width = 0, height = 0;
 
-    int channel;
-    int width;
-    int height;
-    int img_width;
-    int img_height;
+    //输出量化参数，init的时候查用，复用
+    std::vector<int32_t> out_zps;
+    std::vector<float>   out_scales;
 
+    //保护本实例（每个线程单独占用一个实例）
     std::mutex mtx;
-
-    static int uart_fd;
-    static std::mutex uart_mutex;
-};
+}
 
 #endif

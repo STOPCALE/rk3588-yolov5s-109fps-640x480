@@ -90,5 +90,5 @@ Done "全部完成 🎉"
 Write-Host ""
 Write-Host "运行方式：" -ForegroundColor Cyan
 Write-Host "  ssh $BOARD" -ForegroundColor Gray
-Write-Host "  cd $BOARD_DIR/install/my_rknn_yolov5_demo_Linux" -ForegroundColor Gray
+Write-Host "  cd $BOARD_DIR/install/my_rknn_yolov5_demo_aarch64" -ForegroundColor Gray
 Write-Host "  ./my_rknn_yolov5_demo ./model/RK3588/best.rknn <视频路径>" -ForegroundColor Gray

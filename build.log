@@ -1,8 +1,0 @@
-[ 50%] Building CXX object CMakeFiles/my_rknn_yolov5_demo.dir/src/rkYolov5s.cc.o
-/home/orangepi/myproj/src/rkYolov5s.cc:1:10: fatal error: rkYolov5s.h: 没有那个文件或目录
-    1 | #include "rkYolov5s.h"
-      |          ^~~~~~~~~~~~~
-compilation terminated.
-make[2]: *** [CMakeFiles/my_rknn_yolov5_demo.dir/build.make:63：CMakeFiles/my_rknn_yolov5_demo.dir/src/rkYolov5s.cc.o] 错误 1
-make[1]: *** [CMakeFiles/Makefile2:76：CMakeFiles/my_rknn_yolov5_demo.dir/all] 错误 2
-make: *** [Makefile:130：all] 错误 2

@@ -4,7 +4,7 @@
 //读取文件及内容
 static unsigned char *read_model(const char *filename, int *model_size)
 {
-    FILE *fp = fopen(fliename, "rb");
+    FILE *fp = fopen(filename, "rb");
     if(!fp) {printf("open %s failed\n", filename); return nullptr;}
 
     fseek(fp, 0, SEEK_END);
@@ -17,7 +17,7 @@ static unsigned char *read_model(const char *filename, int *model_size)
     size_t got = fread(data, 1,size, fp);
     fclose(fp);
 
-    size_t ret = (got == size) { free(data); return nullptr; }
+    if (got != (size_t)size){ free(data); return nullptr; }
 
     *model_size = (int)size;
 
@@ -47,7 +47,6 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
 }
 
 rkYolov5s::rkYolov5s(const std::string &model_path) : model_path(model_path)
-    :model_path(model_path)
 {
     //构造函数
 }

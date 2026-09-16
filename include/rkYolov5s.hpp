@@ -19,7 +19,7 @@ public:
     int init(rknn_context *ctx_in = nullptr, bool share_weight = false);
 
     //需要其做dup
-    rknn_context get_pctx();
+    rknn_context *get_pctx();
 
     FrameResult infer(cv::Mat &orig_img);
 
@@ -45,6 +45,6 @@ private:
 
     //保护本实例（每个线程单独占用一个实例）
     std::mutex mtx;
-}
+};
 
 #endif

@@ -69,9 +69,59 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
 
     }
 
-    //B2检查点
-    return 0;
+    // //B2检查点
+    // return 0;
 
+    //查输出属性+推导输入尺寸
+    //查看输出属性张量
+    output_attrs = (rknn_tensor_attr *)calloc(io_num.n_output, sizeof(rknn_tensor_attr));
+    if(!output_attrs) { printf("calloc output_attrs failed\n"); return -1; }
+
+    for (uint32_t i = 0; i < io_num.n_output; i++)
+    {
+        output_attrs[i].index = i;
+        ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &output_attrs[i], sizeof(rknn_tensor_attr));
+        if (ret < 0) { printf("query output attr[%d] error ret=%d\n", i, ret); return -1; }
+
+        printf("output[%d]: name=%s, n_dims=%d, dim=[%d,%d,%d,%d], fmt=%d, type=%d, zp=%d, scale=%f\n",
+            i,output_attrs[i].name,output_attrs[i].n_dims,
+            output_attrs[i].dims[0],output_attrs[i].dims[1],
+            output_attrs[i].dims[2],output_attrs[i].dims[3],
+            output_attrs[i].fmt, output_attrs[i].type,
+            output_attrs[i].zp, output_attrs[i].scale);
+    }
+
+    //提取量化参数
+    out_zps.resize(io_num.n_output);
+    out_scales.resize(io_num.n_output);
+    for (uint32_t i = 0; i < io_num.n_output; i++)
+    {
+        out_zps[i]      = output_attrs[i].zp;
+        out_scales[i]   = output_attrs[i].scale;
+    }
+
+    //推导输入尺寸
+    if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
+    {
+        channel = input_attrs[0].dims[1];
+        height  = input_attrs[0].dims[2];
+        width   = input_attrs[0].dims[3];
+    }
+    else
+    {
+        height = input_attrs[0].dims[1];
+        width  = input_attrs[0].dims[2];
+        channel   = input_attrs[0].dims[3];
+    }
+    printf("model input: channel=%d, width=%d, height=%d\n", channel, width, height);
+
+    inputs[0].index = 0;
+    inputs[0].type  = RKNN_TENSOR_UINT8;
+    inputs[0].fmt   = RKNN_TENSOR_NHWC;
+    inputs[0].size  = (uint32_t)(width * height *channel);
+
+    //B3检查点
+    return 0;
 }
 
 rkYolov5s::rkYolov5s(const std::string &model_path) : model_path(model_path)

@@ -22,7 +22,7 @@ PC(Windows) 是唯一真源 → git push → 板子裸仓库 ~/myproj.git → �
 ### 环境事实
 | 项 | 值 |
 |---|---|
-| 开发板 | Orange Pi 5（RK3588S），IP `192.168.3.226`，SSH 别名 `board` |
+| 开发板 | Orange Pi 5（RK3588S），SSH 别名 `board`（**IP 由 DHCP 动态分配，会变**，见《开发流程与常用指令》§1.4） |
 | 板子系统 | Ubuntu 20.04.6 focal, aarch64 |
 | 工具链 | CMake **3.16.3**（apt 版）、GCC/G++ 9.4.0、OpenCV 4.2.0 |
 | NPU | rknpu 驱动 0.9.8，通过 **DRM** 暴露（查 `ls /dev/dri/`，**没有** `/dev/rknpu`） |

@@ -49,7 +49,7 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
     ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
     if (ret < 0) { printf("query in/out num error ret=%d\n", ret); return -1;}
     printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
-    
+
     //查询输入张量属性
     input_attrs = (rknn_tensor_attr *)calloc(io_num.n_input, sizeof(rknn_tensor_attr));
     if (!input_attrs) {printf("calloc input_attrs failed\n"); return -1;}
@@ -65,7 +65,7 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
             input_attrs[i].dims[0],input_attrs[i].dims[1],
             input_attrs[i].dims[2],input_attrs[i].dims[3],
             input_attrs[i].fmt,input_attrs[i].type);
-        
+
 
     }
 

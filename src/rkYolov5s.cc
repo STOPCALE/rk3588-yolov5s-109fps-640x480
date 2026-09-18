@@ -47,28 +47,30 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
 
     //查询输入输出个数
     ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    if (ret < 0) { pirntf("query in/out num error ret=%d\n", ret); return -1;}
-    prinf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+    if (ret < 0) { printf("query in/out num error ret=%d\n", ret); return -1;}
+    printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
     
     //查询输入张量属性
     input_attrs = (rknn_tensor_attr *)calloc(io_num.n_input, sizeof(rknn_tensor_attr));
-    if (!input_attrs) {pirntf("calloc input_attrs failed\n"); return -1;}
+    if (!input_attrs) {printf("calloc input_attrs failed\n"); return -1;}
 
     for (int i = 0; i < io_num.n_input; i++)
     {
         input_attrs[i].index = i;
         ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &input_attrs[i], sizeof(rknn_tensor_attr));
-        if (ret < 0 ) { printf("query input attr[%d] error ret=%d\m", i, ret); return -1; }
+        if (ret < 0 ) { printf("query input attr[%d] error ret=%d\n", i, ret); return -1; }
 
-        print("input[%d]: name=%s, n_dims=%d, dims=[%d,%d,%d,%d], fmt=%d, type=%d\n",
+        printf("input[%d]: name=%s, n_dims=%d, dims=[%d,%d,%d,%d], fmt=%d, type=%d\n",
             i, input_attrs[i].name, input_attrs[i].n_dims,
             input_attrs[i].dims[0],input_attrs[i].dims[1],
             input_attrs[i].dims[2],input_attrs[i].dims[3],
             input_attrs[i].fmt,input_attrs[i].type);
-            
+        
 
     }
 
+    //B2检查点
+    return 0;
 
 }
 

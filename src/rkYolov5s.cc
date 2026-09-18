@@ -1,5 +1,6 @@
 #include "rkYolov5s.hpp"
 #include <stdio.h>
+#include "coreNum.hpp"
 
 //读取文件及内容
 static unsigned char *read_model(const char *filename, int *model_size)
@@ -35,6 +36,19 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
     int ret = share_weight ? rknn_dup_context(ctx_in, &ctx)
                             :rknn_init(&ctx,model_data, model_size, 0, nullptr);
     if (ret < 0) { printf("rknn_init error ret = %d\n", ret); return -1;}
+
+    rknn_core_mask core_mask;
+    int core = get_core_num();
+    switch (core)
+    {
+        case 0:     core_mask = RKNN_NPU_CORE_0; break;
+        case 1:     core_mask = RKNN_NPU_CORE_1; break;
+        case 2:     core_mask = RKNN_NPU_CORE_2; break;
+        default:    core_mask =RKNN_NPU_CORE_AUTO; break;
+    }
+    ret = rknn_set_core_mask(ctx, core_mask);
+    if (ret < 0) { printf("rknn_set_core_mask error ret=%d\n", ret); return -1; }
+    printf("bind to NPU core %d (mask=%d)\n", core, (int)core_mask);
 
     //打印测试
     rknn_sdk_version ver;

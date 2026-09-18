@@ -54,7 +54,7 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
     input_attrs = (rknn_tensor_attr *)calloc(io_num.n_input, sizeof(rknn_tensor_attr));
     if (!input_attrs) {printf("calloc input_attrs failed\n"); return -1;}
 
-    for (int i = 0; i < io_num.n_input; i++)
+    for (uint32_t i = 0; i < io_num.n_input; i++)
     {
         input_attrs[i].index = i;
         ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &input_attrs[i], sizeof(rknn_tensor_attr));

@@ -28,6 +28,10 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    int max_frames = 3;
+    if (argc == 4) max_frames = atoi(argv[3]);
+
+
     rkYolov5s model(argv[1]);
     if (model.init(nullptr, false) != 0)
     {
@@ -40,7 +44,7 @@ int main(int argc, char **argv)
     const double freq = cv::getTickFrequency();     //每秒多少tick
     StageStat st_read, st_infer;
 
-    for (int f = 0; f < 3; f++)
+    for (int f = 0; f < max_frames; f++)
     {
         printf("--- frame %d ---\n", f);
 

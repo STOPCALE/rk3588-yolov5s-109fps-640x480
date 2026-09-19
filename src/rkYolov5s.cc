@@ -309,12 +309,16 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     printf("[post] 候选=%d -> NMS后=%d decode=%.3f ms nms=%.3f ms 合计=%.3f\n",
             n_before, (int)vb.items.size(), ms_dec, ms_nms, ms_nms + ms_dec);
 
-    //打印幸存者（NMS 后通常只剩 1 个）—— 这就是最终的检测结果
-    for (int k = 0; k < (int)vb.items.size(); k++)
+    //★ B7-3 最关键的一步：把"模型坐标系"的结果还原到"原图坐标系"，存进 FrameResult
+    //  （少了这一步，result.balls 永远是空的，main.cc 里画圆的代码一次都不会执行）
+    vb_to_original(vb.items, result.balls, pads, scale_lb);
+
+    //打印最终结果（**原图坐标**）
+    for (int k = 0; k < (int)result.balls.size(); k++)
     {
-        const vb_box_t &b = vb.items[k];
-        printf("  [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f  head=%d anchor=%d\n",
-               k, b.cx, b.cy, b.radius, b.prop, b.head, b.anchor);
+        const vb_ball_t &b = result.balls[k];
+        printf("  [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f  (原图坐标)\n",
+               k, b.cx, b.cy, b.radius, b.prop);
     }
 
     //冒烟检查，看数据如何

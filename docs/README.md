@@ -47,6 +47,14 @@ cd "E:\desk\学习\C++\mytest\new"
 ### 工程是什么
 RK3588 上的 **YOLOv5 多线程 NPU 推理工程**（C++14 / CMake），最终目标是做**实时目标跟踪 + 串口下发偏差给下位机**。
 
+### 🔴 路径铁律（第一条，违反就全错）
+```
+✅ E:\desk\学习\C++\mytest\new                                 ← 用户的工程，唯一真源，只改这里
+❌ E:\desk\学习\C++\mytest\rknn-cpp-Multithreading-main\...     ← 旧工程，只读参考，绝不修改
+```
+- 回复里写**相对路径**时，必须声明"相对于 `E:\desk\学习\C++\mytest\new\`"，否则读者无法判断是哪个工程
+- `new/include/` 下有些文件（`rknnPool.hpp`、`ThreadPool.hpp`、`postprocess.h`、`preprocess.h`、`FrameResult.hpp` 等）是**从旧工程复制过来的**，用户尚未重写 —— 点评时要说清楚
+
 ### 工作模式（很重要）
 ```
 PC(Windows) 是唯一真源 → git push → 板子裸仓库 ~/myproj.git → 板子 ~/myproj (只读) 编译运行

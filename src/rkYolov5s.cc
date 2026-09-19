@@ -1,6 +1,9 @@
 #include "rkYolov5s.hpp"
 #include <stdio.h>
 #include "coreNum.hpp"
+#include <string.h>
+#include <vector>
+#include <opencv2/imgproc.hpp>
 
 //读取文件及内容
 static unsigned char *read_model(const char *filename, int *model_size)
@@ -156,4 +159,61 @@ rkYolov5s::~rkYolov5s()
 rknn_context *rkYolov5s::get_pctx()
 {
     return &ctx;
+}
+
+//推理一帧：预处理->喂数据->RUN->取输出
+FrameResult rkYolov5s::infer(cv::Mat &orig_img)
+{
+    FrameResult result;
+    result.image = orig_img;
+    int ret = 0;
+
+    //预处理：缩放到模型输入尺寸
+    cv::Mat resized;
+    cv::resize(orig_img, resized, cv::Size(width, height));
+
+    //数据交给引擎
+    inputs[0].buf = resized.data;
+    ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
+    if (ret < 0) { printf("rknn_inputs_set error ret=%d\n", ret); return result; }
+
+    //执行推理
+    ret = rknn_run(ctx, nullptr);
+    if (ret < 0) { printf("rknn_run error ret=%d\n",ret); return result; }
+
+    //取出输出
+    std::vector<rknn_output> outputs(io_num.n_output);
+    memset(outputs.data(), 0,sizeof(rknn_output) * io_num.n_output);
+    for (uint32_t i = 0; i < io_num.n_output; i++)
+    {
+        outputs[i].index        =i;
+        outputs[i].want_float   =0;//此处为int8原始量化数据
+        outputs[i].is_prealloc  =0;//此处为runtime分配buf，release时自动释放
+    }
+    ret = rknn_outputs_get(ctx, io_num.n_output, outputs.data(), nullptr);
+    if (ret < 0) {  printf("rknn_outputs_get error ret=%d\n", ret); return result;}
+
+    //冒烟检查，看数据如何
+    for (uint32_t i = 0; i < io_num.n_output; i++)
+    {
+        int8_t *p  = (int8_t *)outputs[i].buf;
+        int     n  = (int)outputs[i].size;
+        int8_t  mn = 127;
+        int8_t  mx = -128;
+        for (int k = 0; k < n; k++)
+        {
+            if (p[k] < mn) mn = p[k];
+            if (p[k] > mx) mx = p[k];
+        }
+        printf("out[%u] size=%d int8[min=%d, max=%d] real[min=%.4f, max=%.4f]\n",
+        i, n, mn, mx,
+        (mn - out_zps[i]) * out_scales[i],
+        (mx - out_zps[i]) * out_scales[i]);
+    }
+
+    //释放输出
+    rknn_outputs_release(ctx, io_num.n_output, outputs.data());
+
+    //B5检查点
+    return result;
 }

@@ -77,4 +77,20 @@ int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
 //NMS抑制（就地修改result->items）返回存活数量
 int vb_nms(vb_result_t * result, float iou_thresh);
 
+//原图坐标系下对排球检测结果
+typedef struct _vb_ball_t
+{
+    /* data */
+    float cx,cy;    //球心（原图坐标）
+    float radius;   //半径（原像素）
+    float prop;     //置信度
+} vb_ball_t;
+
+//把模型坐标系得检测结果还原到原图坐标系
+//   x_orig = (x_model - pad.left) / scale
+//   y_orig = (y_model - pad.top ) / scale
+//   r_orig =         r_model      / scale     ← 半径是"长度"，【不減 pad】！
+void vb_to_original(const std::vector<vb_box_t> &src, std::vector<vb_ball_t> &dst,
+                        const BOX_RECT &pads, float scale);
+
 #endif //_RKNN_YOLOV5_DEMO_POSTPROCESS_H_

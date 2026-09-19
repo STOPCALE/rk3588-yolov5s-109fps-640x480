@@ -254,6 +254,12 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     }
     ms_pre = (cv::getTickCount() - t_pre) * 1000.0 / cv::getTickFrequency();
 
+    //B7验证letterbox参数
+    printf("[lb] scale=%.6f new=%dx%d pads(l=%d r=%d t=%d b=%d)\n",
+            scale_lb, width - pads.left - pads.right,
+            height - pads.top - pads.bottom,
+            pads.left, pads.right, pads.top, pads.bottom);
+
     //数据交给引擎
     ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
     if (ret < 0) { printf("rknn_inputs_set error ret=%d\n", ret); return result; }

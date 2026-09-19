@@ -294,18 +294,20 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     }
 
     vb_result_t vb;
-    int64_t t_pp = cv::getTickCount();
+
+    //解码
+    int64_t t_dec = cv::getTickCount();
     vb_decode(heads, width, height, box_conf_threshold, &vb);
-    double ms_pp = (cv::getTickCount() - t_pp) * 1000.0 / cv::getTickFrequency();
+    double ms_dec = (cv::getTickCount() - t_dec) * 1000.0 / cv::getTickFrequency();
 
-    printf("[post] candidates=%d 耗时=%.3f ms\n", (int)vb.items.size(), ms_pp);
-    for (int k = 0; k < (int)vb.items.size() && k < 5; k++)
-    {
-        const vb_box_t &b = vb.items[k];
-        printf(" [%d] cx = %.1f cy=%.1f r=%.1f prop=%.3f head=%d anchor=%d\n",
-                k, b.cx, b.cy, b.radius, b.prop, b.head, b.anchor);
-    }
+    //NMS
+    const int   n_before    = (int)vb.items.size();
+    int64_t     t_nms       = cv::getTickCount();
+    vb_nms(&vb, nms_threshold);
+    double ms_nms = (cv::getTickCount() - t_nms) * 1000.0 / cv::getTickFrequency();
 
+    printf("[post] 候选=%d -> NMS后=%d decode=%.3f ms nms=%.3f ms 合计=%.3f\n",
+            n_before, (int)vb.items.size(), ms_dec, ms_nms, ms_nms + ms_dec);
     //冒烟检查，看数据如何
     for (uint32_t i = 0; i < io_num.n_output; i++)
     {

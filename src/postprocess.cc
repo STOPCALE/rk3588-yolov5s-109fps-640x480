@@ -1,6 +1,7 @@
 #include "postprocess.h"
 #include <math.h>
 #include <stdio.h>
+#include <algorithm>
 
 //三个检测头的 anchor
 //====================================================================
@@ -99,6 +100,8 @@ int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
                     vb_box_t box;
                     box.cx      = cx;
                     box.cy      = cy;
+                    box.bw      = bw;
+                    box.bh      = bh;
                     box.radius  = (bw + bh) * 0.25f; //半径 = （宽+高）/4
                     box.prop    = deqnt(obj, zp, scale);
                     box.head    = h;
@@ -111,4 +114,72 @@ int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
     return (int)result->items.size();
 }
 
+//两框的交并比 IoU = 交集面积 / 并集面积
+//------------------------------------------------------------
+// 【沿用自旧工程 CalculateOverlap()，有一处【故意的改动】】
+//   旧工程写:  w = fmax(0, fmin(xmax0,xmax1) - fmax(xmin0,xmin1) + 1.0)
+//                                                             ^^^^^
+//   那个 "+1.0" 是【整数像素索引】坐标系下的约定 ——
+//   像素是"格子"不是"点"，从第 0 列到第 0 列的框宽度算 1 个像素。
+//
+//   但我们的坐标是【连续浮点】(模型解码出来的)，
+//   框占据的区间长度就是 (xmax - xmin)，所以【不加 1.0】。
+//
+//   ⚠️ 这不是"坐标系对比"，而是"那个 +1 属于哪种坐标系"的问题。
+//      对 23px 的框，加 1 会让宽度多 4%、IoU 多约 8% —— 本例不影响结果，
+//      但写对坐标系比"抄得像"更重要。
+//------------------------------------------------------------
+static float vb_iou(const vb_box_t &a, const vb_box_t &b)
+{
+    //把"中心 + 宽高"换算成四个边界
+    const float ax0 = a.cx - a.bw * 0.5f, ay0 = a.cy - a.bh * 0.5f;
+    const float ax1 = a.cx + a.bw * 0.5f, ay1 = a.cy + a.bh * 0.5f;
+    const float bx0 = b.cx - b.bw * 0.5f, by0 = b.cy - b.bh * 0.5f;
+    const float bx1 = b.cx + b.bw * 0.5f, by1 = b.cy + b.bh * 0.5f;
+
+    //交集：两框在两个方向上的重叠长度，负值截断为 0
+    const float w = fmaxf(0.0f, fminf(ax1, bx1) - fmaxf(ax0, bx0));
+    const float h = fmaxf(0.0f, fminf(ay1, by1) - fmaxf(ay0, by0));
+    const float inter = w * h;
+
+    //并集 = 面积A + 面积B - 交集
+    const float area_a = (ax1 - ax0) * (ay1 - ay0);
+    const float area_b = (bx1 - bx0) * (by1 - by0);
+    const float uni    = area_a + area_b - inter;
+
+    return (uni <= 0.0f) ? 0.0f : (inter / uni);
+}
+
+//NMS抑制，把同一个球产生的多个重复目标合成一个
+int vb_nms(vb_result_t *result, float iou_thresh)
+{
+    std::vector<vb_box_t> &boxes = result->items;
+    if (boxes.size() < 2) return (int)boxes.size();
+
+    //按置信度降序 --贪心NMS，从最可信开始
+    std::sort(boxes.begin(), boxes.end(),
+                [](const vb_box_t &a, const vb_box_t &b)
+    { return a.prop > b.prop; });
+
+    //贪心抑制
+    std::vector<char> dead(boxes.size(), 0);
+    int keep = 0;   //下一个存活项要写的位置
+
+    for (size_t i = 0; i < boxes.size(); i++)
+    {
+        if (dead[i]) continue;
+
+        boxes[keep++] = boxes[i];   //保留第i个
+
+        //抑制后面所哟与其重叠过多的
+        for (size_t j = 0; j < boxes.size(); j++)
+        {
+            if (dead[j]) continue;
+            if (vb_iou(boxes[i], boxes[j]) > iou_thresh) dead[j] = 1;
+        }
+    }
+
+    boxes.resize(keep);
+    return keep;
+}
 

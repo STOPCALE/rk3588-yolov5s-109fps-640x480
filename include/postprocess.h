@@ -58,6 +58,7 @@ typedef struct _vb_head_t
 typedef struct _vb_box_t
 {
     float cx, cy;   //球心
+    float bw, bh;   //外接框的宽/高
     float radius;   //半径
     float prop;     //置信度
     int   head;     //来自哪个头
@@ -72,5 +73,8 @@ typedef struct _result_t
 //预筛+解码，返回候选数量
 int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
                 float conf_thresh, vb_result_t *result);
+
+//NMS抑制（就地修改result->items）返回存活数量
+int vb_nms(vb_result_t * result, float iou_thresh);
 
 #endif //_RKNN_YOLOV5_DEMO_POSTPROCESS_H_

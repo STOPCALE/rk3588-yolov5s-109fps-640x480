@@ -198,6 +198,7 @@ int main(int argc, char **argv)
     std::vector<std::string> files;        // 图片模式 / 目录模式用（列成一张表挨个取）
     cv::VideoCapture         cap;          // 视频模式用
     bool                     use_video = false;
+    bool                     repeat_one = false;   // 单图模式：同一个文件反复跑
 
     if (is_dir)
     {
@@ -220,6 +221,7 @@ int main(int argc, char **argv)
     else if (is_image_file(input))
     {
         files.push_back(input);
+        repeat_one = true;
         // 单张图默认跑 3 次：B7-3 就是这么用的，重复几次能看出结果稳不稳。
         if (!user_max) max_frames = 3;
         printf("---- 图片模式: %s ----\n", input.c_str());
@@ -301,8 +303,11 @@ int main(int argc, char **argv)
         }
         else
         {
-            if (idx >= (int)files.size()) break;
-            name  = files[idx];
+            // 目录模式：表里跑完了就停。
+            // 单图模式：表里只有 1 个元素，要跑 N 次就得取模，让同一个文件名反复出场。
+            if (!repeat_one && idx >= (int)files.size()) break;
+
+            name  = files[idx % files.size()];
             frame = cv::imread(name);
             if (frame.empty()) { printf("[skip] 读不到: %s\n", name.c_str()); continue; }
         }

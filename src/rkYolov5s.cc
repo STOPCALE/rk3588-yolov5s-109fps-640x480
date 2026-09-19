@@ -5,6 +5,7 @@
 #include <vector>
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
+#include <stdlib.h>
 
 //读取文件及内容
 static unsigned char *read_model(const char *filename, int *model_size)
@@ -83,18 +84,32 @@ int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
                             :rknn_init(&ctx,model_data, model_size, 0, nullptr);
     if (ret < 0) { printf("rknn_init error ret = %d\n", ret); return -1;}
 
-    rknn_core_mask core_mask;
+    //开始
+    //绑核：按get_core_num()分配;
+    //      亦可强制覆盖
+    //      RKNN_CORE_MASK=1->只用核0，=2核1，=4核2，=7三核都用
+    rknn_core_mask core_mask = RKNN_NPU_CORE_AUTO;
     int core = get_core_num();
-    switch (core)
+    const char *env_mask = getenv("RKNN_CORE_MASK");
+    if (env_mask != nullptr)
     {
-        case 0:     core_mask = RKNN_NPU_CORE_0; break;
-        case 1:     core_mask = RKNN_NPU_CORE_1; break;
-        case 2:     core_mask = RKNN_NPU_CORE_2; break;
-        default:    core_mask =RKNN_NPU_CORE_AUTO; break;
+        core_mask = (rknn_core_mask)atoi(env_mask);
+    }
+    else
+    {
+        switch (core)
+        {
+            case 0:  core_mask = RKNN_NPU_CORE_0; break;
+            case 1:  core_mask = RKNN_NPU_CORE_1; break;
+            case 2:  core_mask = RKNN_NPU_CORE_2; break;
+            default: core_mask = RKNN_NPU_CORE_AUTO; break;
+        }
     }
     ret = rknn_set_core_mask(ctx, core_mask);
     if (ret < 0) { printf("rknn_set_core_mask error ret=%d\n", ret); return -1; }
-    printf("bind to NPU core %d (mask=%d)\n", core, (int)core_mask);
+    printf("bind: rotate_core=%d mask=%d\n", core, (int)core_mask);
+
+    //结束
 
     //打印测试
     rknn_sdk_version ver;
@@ -268,15 +283,19 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         int     n  = (int)outputs[i].size;
         int8_t  mn = 127;
         int8_t  mx = -128;
+        uint32_t h = 2166136261u;
         for (int k = 0; k < n; k++)
         {
-            if (p[k] < mn) mn = p[k];
-            if (p[k] > mx) mx = p[k];
+            int8_t v = p[k];
+            if (p[k] < mn) mn = v;
+            if (p[k] > mx) mx = v;
+            h = (h ^ (uint8_t)v) * 16777619u;
         }
-        printf("out[%u] size=%d int8[min=%d, max=%d] real[min=%.4f, max=%.4f]\n",
+        printf("out[%u] size=%d int8[min=%d, max=%d] real[min=%.4f, max=%.4f] hash=%08x\n",
         i, n, mn, mx,
         (mn - out_zps[i]) * out_scales[i],
-        (mx - out_zps[i]) * out_scales[i]);
+        (mx - out_zps[i]) * out_scales[i],
+        h);
     }
 
     //释放输出

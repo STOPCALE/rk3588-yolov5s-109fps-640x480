@@ -79,6 +79,10 @@ int main(int argc, char **argv)
         }
     }
 
+    printf("\n=========== 汇总（每帧耗时 ms）===========\n");
+    printf("  阶段        平均       最小       最大\n");
+    printf("  read    %8.2f   %8.2f   %8.2f\n", st_read.avg(),  st_read.mn,  st_read.mx);
+    printf("  infer   %8.2f   %8.2f   %8.2f\n", st_infer.avg(), st_infer.mn, st_infer.mx);
     printf("B7-3 OK\n");
     return 0;
 

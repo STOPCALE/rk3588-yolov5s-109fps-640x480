@@ -1,0 +1,19 @@
+# =============================================================================
+#  .gitattributes  —— 强制跨平台的行尾统一
+#
+#  为什么需要：
+#      PC 是 Windows（默认 CRLF），板子是 Linux（要 LF）。
+#      `.sh` 脚本如果被 checkout 成 CRLF，在 Linux 上会报
+#        "bash: /path/script.sh: /bin/bash^M: bad interpreter"
+#        （^M 就是那个多余的 \r）
+#
+#  规则：
+#      * text=auto        让 git 自动判断哪些是文本文件
+#      *.sh eol=lf        只有 .sh 强制 LF —— 无论如何都不许变 CRLF
+#
+#  注：.ps1 不强制行尾。PowerShell 5.1 对 LF 和 CRLF 都能处理，
+#      但它**要求 UTF-8 必须带 BOM**（那是另一件事，见 tools/*.ps1 的文件头注释）。
+# =============================================================================
+
+* text=auto
+*.sh text eol=lf

@@ -8,7 +8,7 @@
 #include "opencv2/core/core.hpp"
 #include "FrameResult.hpp"
 
-class rkYolov5s 
+class rkYolov5s
 {
 public:
     explicit rkYolov5s(const std::string& model_path);
@@ -38,6 +38,11 @@ private:
 
     //模型输入尺寸，从attrs推导
     int channel =0, width = 0, height = 0;
+
+    //letterbox还原参数
+    BOX_RECT pads      = {};//四条边补的像素
+    float    scale_lb  = 1.0f;//缩放比
+
 
     //输出量化参数，init的时候查用，复用
     std::vector<int32_t> out_zps;

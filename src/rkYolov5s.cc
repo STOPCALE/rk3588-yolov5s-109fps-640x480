@@ -4,6 +4,7 @@
 #include <string.h>
 #include <vector>
 #include <opencv2/imgproc.hpp>
+#include <algorithm>
 
 //读取文件及内容
 static unsigned char *read_model(const char *filename, int *model_size)
@@ -26,6 +27,48 @@ static unsigned char *read_model(const char *filename, int *model_size)
     *model_size = (int)size;
 
     return data;
+}
+
+//letterbox: 保持宽高比，缩放target尺寸，剩余则填充
+static void letterbox(const cv::Mat &src, cv::Mat &dst, BOX_RECT &pads, float &scale,
+                      const cv::Size &target,
+                      const cv::Scalar &pad_color = cv::Scalar(114, 114, 114))
+{
+    //缩放比：又宽和高的比，取小值
+    float sw = (float)target.width  / (float)src.cols;
+    float sh = (float)target.height / (float)src.rows;
+    scale = std::min(sw, sh);
+
+    //缩放后的实际尺寸
+    int new_w = (int)(src.cols * scale);
+    int new_h = (int)(src.rows * scale);
+
+    //缩放后如果和原图一样则跳过
+    cv::Mat scaled;
+    if (new_w == src.cols && new_h == src.rows)
+    {
+        scaled = src;
+    }
+    else
+    {
+        cv::resize(src, scaled, cv::Size(new_w, new_h));
+    }
+
+    //居中：分两半
+    int dw   = target.width  - new_w;
+    int dh   = target.height - new_h;
+    int left = dw / 2;
+    int top  = dh / 2;
+
+    //参数顺序是（top, bottom, left, right）
+    cv::copyMakeBorder(scaled, dst, top, dh - top, left, dw - left,
+                        cv::BORDER_CONSTANT, pad_color);
+
+    //记录还原参数
+    pads.left   = left;
+    pads.right  = dw - left;
+    pads.top    = top;
+    pads.bottom = dh - top;
 }
 
 int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
@@ -167,10 +210,28 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     FrameResult result;
     result.image = orig_img;
     int ret = 0;
+    double ms_pre = 0.0, ms_run = 0.0;
 
     //预处理：缩放到模型输入尺寸
+    int64_t t_pre = cv::getTickCount();
     cv::Mat resized;
-    cv::resize(orig_img, resized, cv::Size(width, height));
+    if (orig_img.cols == width && orig_img.rows == height
+        && orig_img.channels() == channel && orig_img.isContinuous())
+    {
+        //原图尺寸/通道匹配，不拷贝
+        pads.left = pads.right = pads.top = pads.bottom = 0;
+        scale_lb  = 1.0f;
+        inputs[0].buf = orig_img.data;
+    }
+    else
+    {
+        //letterbox：保持缩放
+        letterbox(orig_img, resized, pads, scale_lb, cv::Size(width, height));
+        inputs[0].buf = resized.data;
+    }
+    ms_pre = (cv::getTickCount() - t_pre) * 1000.0 / cv::getTickFrequency();
+
+    // cv::resize(orig_img, resized, cv::Size(width, height));
 
     //数据交给引擎
     inputs[0].buf = resized.data;
@@ -178,8 +239,10 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     if (ret < 0) { printf("rknn_inputs_set error ret=%d\n", ret); return result; }
 
     //执行推理
+    int64_t t_run = cv::getTickCount();
     ret = rknn_run(ctx, nullptr);
     if (ret < 0) { printf("rknn_run error ret=%d\n",ret); return result; }
+    ms_run = (cv::getTickCount() - t_run) * 1000.0 / cv::getTickFrequency();
 
     //取出输出
     std::vector<rknn_output> outputs(io_num.n_output);
@@ -214,6 +277,7 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     //释放输出
     rknn_outputs_release(ctx, io_num.n_output, outputs.data());
 
+    printf("[time] preprocess=%.2f ms run=%.2f ms\n", ms_pre, ms_run);
     //B5检查点
     return result;
 }

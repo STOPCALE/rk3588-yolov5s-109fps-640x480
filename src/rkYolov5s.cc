@@ -282,6 +282,30 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     ret = rknn_outputs_get(ctx, io_num.n_output, outputs.data(), nullptr);
     if (ret < 0) {  printf("rknn_outputs_get error ret=%d\n", ret); return result;}
 
+    //B7-1预筛+解码
+    vb_head_t heads[VB_HEAD_NUM];
+    for (int i = 0; i < VB_HEAD_NUM; i++)
+    {
+        heads[i].data   = (const int8_t *)outputs[i].buf;
+        heads[i].grid_h = (int)output_attrs[i].dims[2];     //NCHW
+        heads[i].grid_w = (int)output_attrs[i].dims[3];
+        heads[i].zp     = out_zps[i];
+        heads[i].scale  = out_scales[i];
+    }
+
+    vb_result_t vb;
+    int64_t t_pp = cv::getTickCount();
+    vb_decode(heads, width, height, box_conf_threshold, &vb);
+    double ms_pp = (cv::getTickCount() - t_pp) * 1000.0 / cv::getTickFrequency();
+
+    printf("[post] candidates=%d 耗时=%.3f ms\n", (int)vb.items.size(), ms_pp);
+    for (int k = 0; k < (int)vb.items.size() && k < 5; k++)
+    {
+        const vb_box_t &b = vb.items[k];
+        printf(" [%d] cx = %.1f cy=%.1f r=%.1f prop=%.3f head=%d anchor=%d\n",
+                k, b.cx, b.cy, b.radius, b.prop, b.head, b.anchor);
+    }
+
     //冒烟检查，看数据如何
     for (uint32_t i = 0; i < io_num.n_output; i++)
     {

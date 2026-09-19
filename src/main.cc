@@ -21,8 +21,13 @@ int main(int argc, char **argv)
     if (img.empty()) { printf("read image %s failed\n", argv[2]); return -1; }
     printf("image: %dx%d channels=%d\n", img.cols, img.rows, img.channels());
 
-    model.infer(img);
+    // model.infer(img);
 
+    for (int i = 0; i < 10; i++)
+    {
+        printf("---frame %d ---\n", i);
+        model.infer(img);
+    }
 
     printf("B5 OK\n");
     return 0;

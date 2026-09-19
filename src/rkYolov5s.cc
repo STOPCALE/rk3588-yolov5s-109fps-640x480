@@ -210,6 +210,14 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     FrameResult result;
     result.image = orig_img;
     int ret = 0;
+
+    //输入校验
+    if (orig_img.empty() || orig_img.channels() !=3)
+    {
+        printf("infer :bad input image (empty=%d, channels=%d)\n",
+                (int)orig_img.empty(), orig_img.channels());
+        return result;
+    }
     double ms_pre = 0.0, ms_run = 0.0;
 
     //预处理：缩放到模型输入尺寸
@@ -231,10 +239,7 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     }
     ms_pre = (cv::getTickCount() - t_pre) * 1000.0 / cv::getTickFrequency();
 
-    // cv::resize(orig_img, resized, cv::Size(width, height));
-
     //数据交给引擎
-    inputs[0].buf = resized.data;
     ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
     if (ret < 0) { printf("rknn_inputs_set error ret=%d\n", ret); return result; }
 

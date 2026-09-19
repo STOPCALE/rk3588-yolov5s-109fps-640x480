@@ -254,11 +254,14 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     }
     ms_pre = (cv::getTickCount() - t_pre) * 1000.0 / cv::getTickFrequency();
 
-    //B7验证letterbox参数
-    printf("[lb] scale=%.6f new=%dx%d pads(l=%d r=%d t=%d b=%d)\n",
-            scale_lb, width - pads.left - pads.right,
-            height - pads.top - pads.bottom,
-            pads.left, pads.right, pads.top, pads.bottom);
+    //B7验证letterbox参数（逐帧打印，verbose 关闭时跳过）
+    if (verbose)
+    {
+        printf("[lb] scale=%.6f new=%dx%d pads(l=%d r=%d t=%d b=%d)\n",
+                scale_lb, width - pads.left - pads.right,
+                height - pads.top - pads.bottom,
+                pads.left, pads.right, pads.top, pads.bottom);
+    }
 
     //数据交给引擎
     ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
@@ -306,47 +309,56 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     vb_nms(&vb, nms_threshold);
     double ms_nms = (cv::getTickCount() - t_nms) * 1000.0 / cv::getTickFrequency();
 
-    printf("[post] 候选=%d -> NMS后=%d decode=%.3f ms nms=%.3f ms 合计=%.3f\n",
-            n_before, (int)vb.items.size(), ms_dec, ms_nms, ms_nms + ms_dec);
+    if (verbose)
+    {
+        printf("[post] 候选=%d -> NMS后=%d decode=%.3f ms nms=%.3f ms 合计=%.3f\n",
+                n_before, (int)vb.items.size(), ms_dec, ms_nms, ms_nms + ms_dec);
+    }
 
     //★ B7-3 最关键的一步：把"模型坐标系"的结果还原到"原图坐标系"，存进 FrameResult
     //  （少了这一步，result.balls 永远是空的，main.cc 里画圆的代码一次都不会执行）
     vb_to_original(vb.items, result.balls, pads, scale_lb);
 
     //打印最终结果（**原图坐标**）
-    for (int k = 0; k < (int)result.balls.size(); k++)
+    if (verbose)
     {
-        const vb_ball_t &b = result.balls[k];
-        printf("  [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f  (原图坐标)\n",
-               k, b.cx, b.cy, b.radius, b.prop);
+        for (int k = 0; k < (int)result.balls.size(); k++)
+        {
+            const vb_ball_t &b = result.balls[k];
+            printf("  [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f  (原图坐标)\n",
+                   k, b.cx, b.cy, b.radius, b.prop);
+        }
     }
 
-    //冒烟检查，看数据如何
-    for (uint32_t i = 0; i < io_num.n_output; i++)
+    //冒烟检查，看数据如何（B5 引入的体检项目，只在 verbose 时才跑）
+    if (verbose)
     {
-        int8_t *p  = (int8_t *)outputs[i].buf;
-        int     n  = (int)outputs[i].size;
-        int8_t  mn = 127;
-        int8_t  mx = -128;
-        uint32_t h = 2166136261u;
-        for (int k = 0; k < n; k++)
+        for (uint32_t i = 0; i < io_num.n_output; i++)
         {
-            int8_t v = p[k];
-            if (p[k] < mn) mn = v;
-            if (p[k] > mx) mx = v;
-            h = (h ^ (uint8_t)v) * 16777619u;
+            int8_t *p  = (int8_t *)outputs[i].buf;
+            int     n  = (int)outputs[i].size;
+            int8_t  mn = 127;
+            int8_t  mx = -128;
+            uint32_t h = 2166136261u;
+            for (int k = 0; k < n; k++)
+            {
+                int8_t v = p[k];
+                if (p[k] < mn) mn = v;
+                if (p[k] > mx) mx = v;
+                h = (h ^ (uint8_t)v) * 16777619u;
+            }
+            printf("out[%u] size=%d int8[min=%d, max=%d] real[min=%.4f, max=%.4f] hash=%08x\n",
+            i, n, mn, mx,
+            (mn - out_zps[i]) * out_scales[i],
+            (mx - out_zps[i]) * out_scales[i],
+            h);
         }
-        printf("out[%u] size=%d int8[min=%d, max=%d] real[min=%.4f, max=%.4f] hash=%08x\n",
-        i, n, mn, mx,
-        (mn - out_zps[i]) * out_scales[i],
-        (mx - out_zps[i]) * out_scales[i],
-        h);
     }
 
     //释放输出
     rknn_outputs_release(ctx, io_num.n_output, outputs.data());
 
-    printf("[time] preprocess=%.2f ms run=%.2f ms\n", ms_pre, ms_run);
+    if (verbose) printf("[time] preprocess=%.2f ms run=%.2f ms\n", ms_pre, ms_run);
     //B5检查点
     return result;
 }

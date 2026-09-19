@@ -21,6 +21,13 @@ public:
     //需要其做dup
     rknn_context *get_pctx();
 
+    //逐帧调试输出开关（B8 加入）
+    //  为什么需要它：infer() 里每帧要打十几行 printf，还包含一个遍历 15 万个输出元素的
+    //  冒烟检查循环。跑单张图片时这是好用的“体测”，但跑视频/测 fps 时它就是纯负担——
+    //  printf 到管道重定向每帧能吃掉好几毫秒，测出来的 fps 是“打印速度”，不是推理速度。
+    //  放在实例成员上而不是定义成全局变量，是为了 B8-3 三线程时每个实例能各自控制。
+    void set_verbose(bool on) { verbose = on; }
+
     FrameResult infer(cv::Mat &orig_img);
 
 private:
@@ -50,6 +57,9 @@ private:
 
     //保护本实例（每个线程单独占用一个实例）
     std::mutex mtx;
+
+    //逐帧调试输出开关，默认开着，保持 B1~B7 的调试习惯不变
+    bool verbose = true;
 };
 
 #endif

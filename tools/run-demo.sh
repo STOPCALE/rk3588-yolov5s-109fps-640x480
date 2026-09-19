@@ -15,16 +15,26 @@
 #  【用法】（在板子上）
 #      bash ~/myproj/tools/run-demo.sh ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200
 #
+#      跑吞吐基准（多实例并行，回归验证用）：
+#      bash ~/myproj/tools/run-demo.sh --bench ./model/RK3588/best.rknn ~/testimg/vb640.jpg 3 300 dup
+#
 #      只绑核、不跑（想用别的方式跑）：
 #      taskset -c 4-7 ~/myproj/install/my_rknn_yolov5_demo_aarch64/my_rknn_yolov5_demo ...
 # =============================================================================
 
 set -eu
 
+# 第一个参数如果是 --bench，就跑基准工具而不是主程序
+APP="my_rknn_yolov5_demo"
+if [ "${1:-}" = "--bench" ]; then
+    APP="bench_throughput"
+    shift
+fi
+
 # 脚本在 <工程根>/tools/ 下，所以根目录 = 上一级
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN_DIR="$ROOT/install/my_rknn_yolov5_demo_$(uname -m)"
-BIN="$BIN_DIR/my_rknn_yolov5_demo"
+BIN="$BIN_DIR/$APP"
 
 if [ ! -x "$BIN" ]; then
     echo "!! 找不到可执行文件: $BIN"

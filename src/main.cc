@@ -2,6 +2,7 @@
 #include "rkYolov5s.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
+#include <stdlib.h>
 #include <opencv2/core/utility.hpp>
 
 //计时系统，对实时系统进行判断的
@@ -22,14 +23,17 @@ struct StageStat
 
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc < 3 || argc >4)
     {
-        printf("Usage: %s <model_path> <image_path>\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3]\n", argv[0]);
         return -1;
     }
 
+    //第四个参数可选，循环多少次，不给就三次
     int max_frames = 3;
     if (argc == 4) max_frames = atoi(argv[3]);
+    if (max_frames <= 0) max_frames = 3;    //防呆
+    printf("frame = %d\n", max_frames);     //回显
 
 
     rkYolov5s model(argv[1]);

@@ -69,9 +69,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 21)
+    if (argc < 3 || argc > 22)
     {
-        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv] [--forever]\n", argv[0]);
         return -1;
     }
 
@@ -88,6 +88,7 @@ int main(int argc, char **argv)
     int  cam_w = 640, cam_h = 480;       //--cam-size WxH:摄像头分辨率(默认 VGA)
     int  cam_fps = 120;                  //--cam-fps N:摄像头帧率(默认 120)
     bool cam_yuyv = false;               //--cam-yuyv:用 YUYV 原始格式(默认 MJPG,高帧率必需)
+    bool forever = false;                //--forever:无限模式(不数帧,跑到 Ctrl+C/被停)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
@@ -101,13 +102,14 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--cam-size")== 0 && i + 1 <argc) { if (sscanf(argv[++i], "%dx%d", &cam_w, &cam_h) != 2) { cam_w = 640; cam_h = 480; } }
         else if (strcmp(argv[i], "--cam-fps")== 0 && i + 1 <argc) cam_fps = atoi(argv[++i]);
         else if (strcmp(argv[i], "--cam-yuyv")== 0)                cam_yuyv = true;
+        else if (strcmp(argv[i], "--forever")== 0)                forever = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s gate = %d vis = %s\n",
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s gate = %d vis = %s forever = %d\n",
            max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms,
            serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)",
-           (int)!nogate, vis_path ? vis_path : "(off)");     //回显
+           (int)!nogate, vis_path ? vis_path : "(off)", (int)forever);     //回显
 
 
 
@@ -318,6 +320,15 @@ int main(int argc, char **argv)
                 st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
                 ++results;
 
+                //长跑心跳：每 3000 帧（≈30s）打印一行——无限模式/后台日志的“体检指标”
+                if (results % 3000 == 0)
+                {
+                    const double w_ms = (cv::getTickCount() - t_start) * 1000.0 / freq;
+                    printf("[hb] %u 帧  墙钟 %.1f s  平均 %.1f fps  延迟 avg %.2f / max %.2f ms\n",
+                           (unsigned)results, w_ms / 1000.0, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx);
+                    fflush(stdout);
+                }
+
                 PredictOutput po{};                                 //本帧预测输出(组包/可视化共用)
                 //B9:预测 -> 组包 -> 发串口(时间戳 = 本帧采集时刻)
                 if (serial_dev || pred_log || vis_path)
@@ -453,7 +464,7 @@ int main(int argc, char **argv)
                 dslot.write(std::move(r.image), 0);
 
                 did = true;
-                if ((int)results >= max_frames) break;
+                if (!forever && (int)results >= max_frames) break;
             }
 
             //收尾：采集结束+池空+没新帧+全处理完了

@@ -57,7 +57,12 @@ int main(int argc, char **argv)
 
     if (prode.empty())
     {
-        if (!cap.open(argv[2])) { printf("打不开：%s\n", argv[2]); return -1;}
+        //指定后端
+        if (!cap.open(argv[2], cv::CAP_GSTREAMER))
+        {
+            printf("[warn] GStreamer 打不开，退回默认后端（可能解不完整）\n");
+            if (!cap.open(argv[2])) { printf("打不开: %s\n", argv[2]); return -1; }
+        }
         is_video = true;
 
         printf("video: %dx%d %.1f fps %0.f 帧\n",

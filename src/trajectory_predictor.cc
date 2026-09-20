@@ -24,11 +24,43 @@ PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, d
 {
     PredictOutput out;
 
-    // ---------- 1. 选目标：取 prop 最高的球（沿用原工程策略） ----------
+    // ---------- 1. 选目标 ----------
+    //   无轨道（起步 / 刚复位）或关门限：取 prop 最高（原工程策略）
+    //   有轨道且开门限：只认"预期位置 ± 门限"内、距离最近的球（目标锁定，B8-4）
     const vb_ball_t *best = nullptr;
-    for (const vb_ball_t &b : balls)
+
+    if (hist_.empty() || !gate_on)
     {
-        if (best == nullptr || b.prop > best->prop) best = &b;
+        for (const vb_ball_t &b : balls)
+        {
+            if (best == nullptr || b.prop > best->prop) best = &b;
+        }
+    }
+    else
+    {
+        // 预期位置 = 最后一点沿速度外推到"本帧时刻"
+        const Sample &last = hist_.back();
+        float ex = last.cx;
+        float ey = last.cy;
+        if (has_v_)
+        {
+            ex += (float)(vx_ * (t_ms - last.t_ms));
+            ey += (float)(vy_ * (t_ms - last.t_ms));
+        }
+
+        float best_d2 = (float)(gate_px * gate_px);     // 门限之内才考虑
+        for (const vb_ball_t &b : balls)
+        {
+            const float dx = b.cx - ex;
+            const float dy = b.cy - ey;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 <= best_d2)
+            {
+                best_d2 = d2;
+                best = &b;
+            }
+        }
+        // 门限内没有候选 -> best 保持 nullptr -> 走"无检测"分支（丢帧外推）
     }
 
     if (best != nullptr)

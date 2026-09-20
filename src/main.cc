@@ -69,9 +69,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 13)
+    if (argc < 3 || argc > 17)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis file] [--nogate]\n", argv[0]);
         return -1;
     }
 
@@ -83,6 +83,8 @@ int main(int argc, char **argv)
     int disp_ms    = 500;      //显示间隔
     const char *serial_dev = nullptr;   //--serial <设备>:给了才发串口(B9)
     const char *pred_log_path = nullptr; //--pred-log <文件>:每帧检测轨迹 CSV(B9 评估用)
+    const char *vis_path = nullptr;      //--vis <文件>:写带标注的结果视频(B9 可视化)
+    bool nogate = false;                 //--nogate:关闭目标锁定(对比用)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
@@ -91,12 +93,15 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--disp")  == 0 && i + 1 <argc) disp_ms = atoi(argv[++i]);
         else if (strcmp(argv[i], "--serial")== 0 && i + 1 <argc) serial_dev = argv[++i];
         else if (strcmp(argv[i], "--pred-log")== 0 && i + 1 <argc) pred_log_path = argv[++i];
+        else if (strcmp(argv[i], "--vis")    == 0 && i + 1 <argc) vis_path = argv[++i];
+        else if (strcmp(argv[i], "--nogate") == 0)               nogate = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s\n",
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s gate = %d vis = %s\n",
            max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms,
-           serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)");     //回显
+           serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)",
+           (int)!nogate, vis_path ? vis_path : "(off)");     //回显
 
 
 
@@ -185,8 +190,17 @@ int main(int argc, char **argv)
             else            printf("[warn] 预测日志打不开:%s\n", pred_log_path);
         }
         TrajectoryPredictor predictor;      //轨迹预测器(真实时间戳版)
+        if (nogate) predictor.gate_on = false;   //--nogate:关闭目标锁定(对比用)
         StageStat st_send;                  //串口发送耗时统计
         size_t pkt_try = 0, pkt_sent = 0, pkt_fail = 0;
+
+        //B9可视化(--vis):结果视频 + 绘制状态
+        cv::VideoWriter vwriter;
+        bool vis_tried = false;
+        std::deque<cv::Point> trail;        //尾迹(最近40个选中点)
+        cv::Point start_pt(0, 0);           //本次跟踪起点
+        bool has_start = false;
+        bool prev_dok = false;
 
         //最新帧槽+采集线程
         FrameSlot slot;
@@ -268,12 +282,13 @@ int main(int argc, char **argv)
                 st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
                 ++results;
 
+                PredictOutput po{};                                 //本帧预测输出(组包/可视化共用)
                 //B9:预测 -> 组包 -> 发串口(时间戳 = 本帧采集时刻)
-                if (serial_dev || pred_log)
+                if (serial_dev || pred_log || vis_path)
                 {
                     ++pkt_try;
                     const double t_ms = t0 * 1000.0 / freq;
-                    PredictOutput po = predictor.update(r.balls, t_ms);
+                    po = predictor.update(r.balls, t_ms);
 
                     //偏差相对图像中心(沿用原工程约定)
                     const int icx = r.image.cols / 2;
@@ -332,6 +347,93 @@ int main(int argc, char **argv)
                     cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
                 }
 
+                //B9可视化(--vis):候选/锁定/尾迹/初始点/预测点/落点外推
+                if (vis_path)
+                {
+                    // 全部候选(细灰)——包括被门限拒收的
+                    for (int k = 0; k < (int)r.balls.size(); k++)
+                    {
+                        const vb_ball_t &b = r.balls[k];
+                        const cv::Point c((int)(b.cx + 0.5f), (int)(b.cy + 0.5f));
+                        cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(140, 140, 140), 2);
+                    }
+
+                    // 选中目标(绿圈红十字)
+                    if (po.detect_ok)
+                    {
+                        const cv::Point c((int)(po.cx + 0.5f), (int)(po.cy + 0.5f));
+                        cv::circle(r.image, c, (int)(po.r + 0.5f), cv::Scalar(0, 255, 0), 3);
+                        cv::drawMarker(r.image, c, cv::Scalar(0, 0, 255), cv::MARKER_CROSS, 30, 2);
+                    }
+
+                    // 尾迹(选中点,最近40个) + 初始点标记
+                    if (po.detect_ok)
+                    {
+                        if (!prev_dok) { start_pt = cv::Point((int)(po.cx + 0.5f), (int)(po.cy + 0.5f)); has_start = true; }
+                        trail.push_back(cv::Point((int)(po.cx + 0.5f), (int)(po.cy + 0.5f)));
+                        while (trail.size() > 40) trail.pop_front();
+                    }
+                    prev_dok = po.detect_ok;
+
+                    for (size_t k = 1; k < trail.size(); k++)
+                        cv::line(r.image, trail[k-1], trail[k], cv::Scalar(0, 180, 255), 2);
+
+                    if (has_start)
+                    {
+                        cv::rectangle(r.image, cv::Rect(start_pt.x - 7, start_pt.y - 7, 14, 14), cv::Scalar(255, 128, 0), 2);
+                        cv::putText(r.image, "START", start_pt + cv::Point(12, -12), cv::FONT_HERSHEY_SIMPLEX, 1.1, cv::Scalar(255, 128, 0), 3);
+                    }
+
+                    // 预测点(+25ms,青) 与 落点外推(0.1~0.5s,青点列)
+                    if (po.predict_ok)
+                    {
+                        const cv::Point p25((int)(po.pred_cx + 0.5f), (int)(po.pred_cy + 0.5f));
+                        cv::drawMarker(r.image, p25, cv::Scalar(255, 255, 0), cv::MARKER_TILTED_CROSS, 30, 3);
+
+                        const float vx = (po.pred_cx - po.cx) / (float)predictor.lead_ms;
+                        const float vy = (po.pred_cy - po.cy) / (float)predictor.lead_ms;
+                        cv::Point pf((int)po.cx, (int)po.cy);
+                        for (int ms = 100; ms <= 500; ms += 100)
+                        {
+                            const cv::Point pn((int)(po.cx + vx * ms), (int)(po.cy + vy * ms));
+                            cv::line(r.image, pf, pn, cv::Scalar(255, 255, 0), 2);
+                            pf = pn;
+                        }
+                        cv::circle(r.image, pf, 10, cv::Scalar(255, 255, 0), 2);
+                        cv::putText(r.image, "LAND(est)", pf + cv::Point(14, -14), cv::FONT_HERSHEY_SIMPLEX, 1.1, cv::Scalar(255, 255, 0), 3);
+                    }
+
+                    // 图像中心(偏差基准)
+                    cv::drawMarker(r.image, cv::Point(r.image.cols / 2, r.image.rows / 2), cv::Scalar(255, 255, 255), cv::MARKER_CROSS, 60, 2);
+
+                    // 状态文本
+                    char vis_txt[256];
+                    snprintf(vis_txt, sizeof vis_txt, "f=%u  det=%d pred=%d  cand=%d  r=%.0f",
+                             (unsigned)results, (int)po.detect_ok, (int)po.predict_ok, (int)r.balls.size(), po.r);
+                    cv::putText(r.image, vis_txt, cv::Point(24, 64), cv::FONT_HERSHEY_SIMPLEX, 1.3, cv::Scalar(0, 255, 0), 3);
+                }
+
+                // --vis:把带标注的帧写进结果视频
+                if (vis_path)
+                {
+                    if (!vis_tried)
+                    {
+                        vis_tried = true;
+                        const cv::Size sz = r.image.size();
+                        vwriter.open(vis_path, cv::VideoWriter::fourcc('m','p','4','v'), 30.0, sz, true);
+                        if (vwriter.isOpened()) printf("[vis] 录制: %s\n", vis_path);
+                        else
+                        {
+                            char alt[512];
+                            snprintf(alt, sizeof alt, "%s.avi", vis_path);
+                            vwriter.open(alt, cv::VideoWriter::fourcc('M','J','P','G'), 30.0, sz, true);
+                            if (vwriter.isOpened()) printf("[vis] 录制(回退): %s\n", alt);
+                            else                    printf("[warn] 视频打不开: %s\n", vis_path);
+                        }
+                    }
+                    if (vwriter.isOpened()) vwriter.write(r.image);
+                }
+
                 //把结果帧交给显示线程
                 dslot.write(std::move(r.image), 0);
 
@@ -369,6 +471,8 @@ int main(int argc, char **argv)
             printf("  串口发包 %u 个(失败 %u) 发送耗时 ms: 平均 %.3f 最大 %.3f\n",
                    (unsigned)pkt_sent, (unsigned)pkt_fail, st_send.avg(), st_send.mx);
         }
+        if (vwriter.isOpened()) vwriter.release();
+        if (vis_path) printf("  可视化视频: %s\n", vis_path);
         if (uart_fd >= 0) uart_close(uart_fd);
         if (pred_log)     fclose(pred_log);
         return 0;

@@ -121,6 +121,30 @@ int main()
     PredictOutput o10 = pred.update(one(10, 10), 0);   // 时间没走
     check(o10.detect_ok && !o10.predict_ok, "两个点同一时间戳：不产生速度（predict_ok=0）");
 
+    // ================= T6 目标锁定/门限（B8-4） =================
+    // 锁定小球 A 后，同帧出现"远处高分球 B"：应续跟 A（近处的），不追 B（高分的）
+    // A 消失、只剩门限外的 B：拒收（按丢帧处理）；丢超限复位后，重新以最高分锁定 B
+    printf("[T6] 目标锁定/门限（B8-4）\n");
+    pred.reset();
+    pred.update(one(100, 100, 10, 0.5f), 0);
+    pred.update(one(100, 100, 10, 0.5f), 33);
+    {
+        std::vector<vb_ball_t> two;
+        {   vb_ball_t a; a.cx = 105; a.cy = 100; a.radius = 10; a.prop = 0.50f; two.push_back(a);
+            vb_ball_t b; b.cx = 500; b.cy = 100; b.radius = 12; b.prop = 0.95f; two.push_back(b); }
+        PredictOutput o = pred.update(two, 66);
+        check(o.detect_ok && near(o.cx, 105.0f), "同帧 A(105) 与 B(500)：续跟 A，不追高分 B");
+    }
+    PredictOutput o11 = pred.update(one(500, 100, 12, 0.95f), 99);
+    check(!o11.detect_ok, "只剩门限外的 B：拒收（按丢帧处理）");
+    pred.update(none, 132);
+    pred.update(none, 165);
+    pred.update(none, 198);
+    pred.update(none, 231);                 // 丢满 5 帧
+    pred.update(one(500, 100, 12, 0.95f), 264);   // 第 6 帧触发复位（本帧无输出）
+    PredictOutput o12 = pred.update(one(500, 100, 12, 0.95f), 297);
+    check(o12.detect_ok && near(o12.cx, 500.0f), "丢超限复位后：重新锁定 B（500）");
+
     // ---- 汇总 ----
     if (fails == 0) printf("\n全部 PASS\n");
     else            printf("\n有 %d 项 FAIL\n", fails);

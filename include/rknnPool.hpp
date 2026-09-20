@@ -115,7 +115,7 @@ int rknnPool<rknnModel, inputType, outputType>::put(inputType inputData)
 
     //深拷贝：把像素给任务的主线程后再改原图
     inputType owned = cloneInput(inputData);
-    futs.push(pool->submit(&rknnModel::infer, models[this->getModelId()], std::move(owned)));
+    futs.push(pool->submit(&rknnModel::infer, models[this->getModelId()], owned));
     return 0;
 }
 

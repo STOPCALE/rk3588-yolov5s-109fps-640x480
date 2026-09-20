@@ -25,22 +25,24 @@ struct StageStat
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 5)
+    if (argc < 3 || argc > 6)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast]\n", argv[0]);
         return -1;
     }
 
-    //可选参数，第3-4位放循环次数或者quiet
+    //可选参数，第3-4位放循环次数或者quiet，fast顺序随意
     int max_frames  = 3;
     bool quiet      = false;
+    bool fast       = false;    //全速喂帧
     for (int i =3; i < argc; i++)
     {
-        if (strcmp(argv[i], "--quiet") == 0)    quiet =true;
+        if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
+        else if (strcmp(argv[i], "--fast")  == 0)    fast  = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d\n", max_frames, (int)quiet);     //回显
+    printf("frame = %d quiet = %d fast = %d\n", max_frames, (int)quiet, (int)fast);     //回显
 
 
     rkYolov5s model(argv[1]);
@@ -64,8 +66,23 @@ int main(int argc, char **argv)
 
     if (prode.empty())
     {
+        if (fast)
+        {
+            //自己拼完整pipeline
+            char pipeline[1024];
+            snprintf(pipeline, sizeof(pipeline),
+                     "filesrc location=\"%s\" ! qtdemux ! h264parse ! avdec_h264 ! "
+                     "videoconvert ! video/x-raw,format=BGR ! appsink sync=false",
+                     argv[2]);
+            if (!cap.open(pipeline, cv::CAP_GSTREAMER))
+            {
+                printf("--fast 的 pipeline 打不开：%s\n", pipeline);
+                return -1;
+            }
+            printf("[fast] 已停用实时节流，全速喂帧\n");
+        }
         //指定后端
-        if (!cap.open(argv[2], cv::CAP_GSTREAMER))
+        else if (!cap.open(argv[2], cv::CAP_GSTREAMER))
         {
             printf("[warn] GStreamer 打不开，退回默认后端（可能解不完整）\n");
             if (!cap.open(argv[2])) { printf("打不开: %s\n", argv[2]); return -1; }

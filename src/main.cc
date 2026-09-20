@@ -141,16 +141,18 @@ int main(int argc, char **argv)
             //B11 摄像头接入：V4L2。缓冲数实测定论：=1 会"每两帧丢一帧"(120fps→62fps)，
             //    =2/4/8 都能跑满 109.4fps —— 取 2（积压上限~2帧≈18ms，兼顾实时性）
             if (!cap.open(argv[2], cv::CAP_V4L2)) { printf("摄像头打不开: %s\n", argv[2]); return -1; }
-            cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
+            const int cam_buf = 2;      // 打印与实际使用同一变量，避免文案对不上
+            cap.set(cv::CAP_PROP_BUFFERSIZE, cam_buf);
             if (!cam_yuyv) cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
             cap.set(cv::CAP_PROP_FRAME_WIDTH,  cam_w);
             cap.set(cv::CAP_PROP_FRAME_HEIGHT, cam_h);
             cap.set(cv::CAP_PROP_FPS,          cam_fps);
             const int  fc = (int)cap.get(cv::CAP_PROP_FOURCC);
-            printf("[cam] %s 实际: %dx%d %.1f fps '%c%c%c%c' (buffer=1)\n",
+            printf("[cam] %s 实际: %dx%d %.1f fps '%c%c%c%c' (buffer=%d)\n",
                    argv[2], (int)cap.get(cv::CAP_PROP_FRAME_WIDTH), (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
                    cap.get(cv::CAP_PROP_FPS),
-                   (char)(fc & 0xFF), (char)((fc >> 8) & 0xFF), (char)((fc >> 16) & 0xFF), (char)((fc >> 24) & 0xFF));
+                   (char)(fc & 0xFF), (char)((fc >> 8) & 0xFF), (char)((fc >> 16) & 0xFF), (char)((fc >> 24) & 0xFF),
+                   cam_buf);
         }
         else if (fast)
         {

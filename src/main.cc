@@ -138,9 +138,10 @@ int main(int argc, char **argv)
     {
         if (is_cam)
         {
-            //B11 摄像头接入：V4L2 + 只留 1 帧驱动缓冲(防陈旧帧积压,实时性关键)
+            //B11 摄像头接入：V4L2。缓冲数实测定论：=1 会"每两帧丢一帧"(120fps→62fps)，
+            //    =2/4/8 都能跑满 109.4fps —— 取 2（积压上限~2帧≈18ms，兼顾实时性）
             if (!cap.open(argv[2], cv::CAP_V4L2)) { printf("摄像头打不开: %s\n", argv[2]); return -1; }
-            cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+            cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
             if (!cam_yuyv) cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
             cap.set(cv::CAP_PROP_FRAME_WIDTH,  cam_w);
             cap.set(cv::CAP_PROP_FRAME_HEIGHT, cam_h);

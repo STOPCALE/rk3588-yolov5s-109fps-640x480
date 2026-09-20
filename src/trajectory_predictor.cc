@@ -54,8 +54,8 @@ PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, d
             const Sample &a = hist_.front();
             const Sample &z = hist_.back();
             const double  dt = z.t_ms - a.t_ms;     // 真实经过时间（ms）
-            if (dt > 1e-6)                          // 防"两个点同一时间戳"除零
-            {
+            if (dt >= min_dt_ms)                    // 间隔过小的两点：噪声会淹没速度信号
+            {                                       // （实拍：启动连发帧 Δt≈3ms → 77px 离群）
                 vx_ = (float)((z.cx - a.cx) / dt);
                 vy_ = (float)((z.cy - a.cy) / dt);
                 has_v_ = true;

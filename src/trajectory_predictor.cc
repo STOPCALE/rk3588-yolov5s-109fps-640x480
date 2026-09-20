@@ -18,6 +18,7 @@ void TrajectoryPredictor::reset()
     has_v_ = false;
     vx_    = 0;
     vy_    = 0;
+    has_anchor_ = false;
 }
 
 PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, double t_ms)
@@ -25,11 +26,37 @@ PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, d
     PredictOutput out;
 
     // ---------- 1. 选目标 ----------
-    //   无轨道（起步 / 刚复位）或关门限：取 prop 最高（原工程策略）
-    //   有轨道且开门限：只认"预期位置 ± 门限"内、距离最近的球（目标锁定，B8-4）
+    //   ① 有轨道 + 开门限：只认"预期位置 ± 门限"内、距离最近的球（目标锁定，B8-4）
+    //   ② 无轨道：先在"锚点"（丢失前最后位置）±relock_px 内找（防锁错目标）；
+    //      锚点不存在/已超时 -> 全局取 prop 最高（起步策略）
+    //   ③ 关门限（--nogate）：全局取 prop 最高（原工程行为，用于对比）
     const vb_ball_t *best = nullptr;
 
-    if (hist_.empty() || !gate_on)
+    if (hist_.empty())
+    {
+        if (has_anchor_ && (t_ms - anchor_.t_ms) > relock_timeout_ms)
+            has_anchor_ = false;                    // 锚点过期：允许全局重锁
+
+        if (has_anchor_)
+        {
+            float best_d2 = (float)(relock_px * relock_px);
+            for (const vb_ball_t &b : balls)
+            {
+                const float dx = b.cx - anchor_.cx;
+                const float dy = b.cy - anchor_.cy;
+                const float d2 = dx * dx + dy * dy;
+                if (d2 <= best_d2) { best_d2 = d2; best = &b; }
+            }
+        }
+        else
+        {
+            for (const vb_ball_t &b : balls)
+            {
+                if (best == nullptr || b.prop > best->prop) best = &b;
+            }
+        }
+    }
+    else if (!gate_on)
     {
         for (const vb_ball_t &b : balls)
         {
@@ -67,6 +94,7 @@ PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, d
     {
         // ---------- 2. 有检测：入历史 + 更新速度 ----------
         lost_ = 0;
+        has_anchor_ = false;    // 已重新锁上，不再需要锚点
 
         Sample s;
         s.cx = best->cx;  s.cy = best->cy;
@@ -110,7 +138,17 @@ PredictOutput TrajectoryPredictor::update(const std::vector<vb_ball_t> &balls, d
     lost_++;
     if (lost_ > max_lost)
     {
-        reset();                        // 丢太久：清空状态，等下次检测重新起步
+        // 丢太久：清轨道，但保留"锚点"（最后已知位置）供重新锁定参考
+        if (!hist_.empty())
+        {
+            anchor_     = hist_.back();
+            has_anchor_ = true;
+        }
+        hist_.clear();
+        lost_  = 0;
+        has_v_ = false;
+        vx_    = 0;
+        vy_    = 0;
         return out;
     }
 

@@ -122,10 +122,14 @@ int main()
     check(o10.detect_ok && !o10.predict_ok, "两个点同一时间戳：不产生速度（predict_ok=0）");
 
     // ================= T6 目标锁定/门限（B8-4） =================
-    // 锁定小球 A 后，同帧出现"远处高分球 B"：应续跟 A（近处的），不追 B（高分的）
-    // A 消失、只剩门限外的 B：拒收（按丢帧处理）；丢超限复位后，重新以最高分锁定 B
+    // 1) 锁定小球 A 后，同帧出现"远处高分球 B"：应续跟 A（近处的），不追 B（高分的）
+    // 2) A 消失、只剩门限外的 B：拒收（丢帧）
+    // 3) 丢超限复位后：锚点（A 的位置）保护——远处 B 不锁；锚点半径内的 C 才锁
+    // 4) 锚点超时后：允许全局重锁
     printf("[T6] 目标锁定/门限（B8-4）\n");
     pred.reset();
+    pred.relock_px         = 250.0;
+    pred.relock_timeout_ms = 5000.0;
     pred.update(one(100, 100, 10, 0.5f), 0);
     pred.update(one(100, 100, 10, 0.5f), 33);
     {
@@ -140,10 +144,21 @@ int main()
     pred.update(none, 132);
     pred.update(none, 165);
     pred.update(none, 198);
-    pred.update(none, 231);                 // 丢满 5 帧
-    pred.update(one(500, 100, 12, 0.95f), 264);   // 第 6 帧触发复位（本帧无输出）
+    pred.update(none, 231);
+    pred.update(none, 264);                        // 第 6 帧触发复位（保留锚点 = A 的位置）
     PredictOutput o12 = pred.update(one(500, 100, 12, 0.95f), 297);
-    check(o12.detect_ok && near(o12.cx, 500.0f), "丢超限复位后：重新锁定 B（500）");
+    check(!o12.detect_ok, "复位后：远处 B(500) 在锚点半径外，不锁");
+    PredictOutput o13 = pred.update(one(300, 100, 12, 0.80f), 330);
+    check(o13.detect_ok && near(o13.cx, 300.0f), "锚点(100) 半径内的 C(300)：重新锁定");
+    // 锚点超时 -> 全局重锁
+    pred.reset();
+    pred.relock_timeout_ms = 150.0;
+    pred.update(one(100, 100, 10, 0.5f), 0);
+    pred.update(one(100, 100, 10, 0.5f), 33);
+    pred.update(none, 66);  pred.update(none, 99);  pred.update(none, 132);
+    pred.update(none, 165); pred.update(none, 198); pred.update(none, 231);   // 复位
+    PredictOutput o14 = pred.update(one(500, 100, 12, 0.95f), 300);
+    check(o14.detect_ok && near(o14.cx, 500.0f), "锚点超时(>150ms)后：全局重新锁定 B(500)");
 
     // ---- 汇总 ----
     if (fails == 0) printf("\n全部 PASS\n");

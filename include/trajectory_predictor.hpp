@@ -44,6 +44,8 @@ public:
                               // （实拍发现：启动时两帧几乎连发 Δt≈3ms，噪声被放大成 77px 离群）
     bool   gate_on   = true;  // 目标锁定/门限（B8-4）：有轨道时只认"预期位置±门限"内的候选
     double gate_px   = 100.0; // 门限半径（px）；分辨率/场景变了要跟着调（本工程 1080p 用 100）
+    double relock_px = 250.0; // 重锁搜索半径（px）：丢失后先在"最后已知位置"附近找，防锁错目标
+    double relock_timeout_ms = 5000.0; // 锚点超时（ms）：超过它才允许"全局重新锁定"
     // ---------------------------------------
 
     TrajectoryPredictor() = default;
@@ -61,6 +63,8 @@ private:
     int   lost_  = 0;            // 连续未检测帧数
     bool  has_v_ = false;        // 是否已算出速度
     float vx_ = 0, vy_ = 0;      // 速度（px/ms）
+    Sample anchor_{};            // 丢失前的最后一点（重锁锚点）
+    bool   has_anchor_ = false;
 };
 
 #endif // TRAJECTORY_PREDICTOR_HPP

@@ -183,44 +183,46 @@ int main(int argc, char **argv)
 
         while (running)
         {
+            bool did = false;
+
             //喂：有新帧就投池
             cv::Mat img;
             int64_t t_cap = 0;
             if (slot.read_newer(last_seq, img, t_cap))
             {
-                if (pool.put(img) == 0) ts.push_back(t_cap);
-            }
-
-            //收：取最早结果
-            if (pool.pending() > 0)
-            {
-                FrameResult r;
-                if (pool.get(r) == 0)
+                if (pool.put(img) == 0)
                 {
-                    const int64_t t0 = ts.front(); ts.pop_front();
-                    st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
-                    ++results;
-
-                    //画框
-                    for (int k = 0; k < (int)r.balls.size(); k++)
-                    {
-                        const vb_ball_t &b = r.balls[k];
-                        const cv::Point c((int)(b.cx + 0.5f), (int)(b.cy + 0.5f));
-                        cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
-                    }
-
-                    if ((int)results >= max_frames) break;
+                    ts.push_back(t_cap);
+                    did = true;
                 }
             }
 
-            //收尾：采集结束+池空+没新帧+全处理完了
-            else if (eos && !slot.has_newer(last_seq))
+            //收：取最早结果
+
+            FrameResult r;
+            if (pool.get(r) == 0)
             {
-                break;
+                const int64_t t0 = ts.front(); ts.pop_front();
+                st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
+                ++results;
+
+                //画框
+                for (int k = 0; k < (int)r.balls.size(); k++)
+                {
+                    const vb_ball_t &b = r.balls[k];
+                    const cv::Point c((int)(b.cx + 0.5f), (int)(b.cy + 0.5f));
+                    cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
+                }
+
+                did = true;
+                if ((int)results >= max_frames) break;
             }
 
+            //收尾：采集结束+池空+没新帧+全处理完了
+            if (eos && pool.pending() == 0 && !slot.has_newer(last_seq)) break;
+
             //没事干睡1ms
-            else
+            if (!did)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }

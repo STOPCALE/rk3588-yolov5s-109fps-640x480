@@ -55,6 +55,22 @@ public:
         for (auto &m : models) m->set_verbose(v);
     }
 
+    //非阻塞取结果
+    int get_try(outputType &outputData)
+    {
+        std::future<outputType> f;
+        {
+            std::lock_guard<std::mutex> lock(queueMtx);
+            if (futs.empty()) return 1;
+            if (futs.front().wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+                return 2;
+            f = std::move(futs.front());
+            futs.pop();
+        }
+        outputData = f.get();           //已ready，立即返回，不阻塞
+        return 0;
+    }
+
     // 当前在途帧数(可用它估算端到端延迟)
     size_t pending();
     // 累计被丢弃的帧数

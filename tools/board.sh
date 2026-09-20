@@ -3,8 +3,9 @@
 #  tools/board.sh —— 板载快捷入口（直接在板子上用，不需要 PC、不需要 ssh）
 # -----------------------------------------------------------------------------
 #  【一次性设置】（推荐，之后就能用短命令 demo）：
-#      echo "alias demo='bash ~/myproj/tools/board.sh'" >> ~/.bashrc
-#      source ~/.bashrc
+#      mkdir -p ~/bin && ln -sf ~/myproj/tools/board.sh ~/bin/demo
+#      （若 ~/bin 不在 PATH： echo "export PATH=/home/orangepi/bin:\$PATH" >> ~/.bashrc）
+#      —— 已由 AI 在 2026-09-20 配好，新开终端直接敲 demo 即可
 #
 #  【用法】（板子上任意目录）
 #      demo cam [帧数] [更多参数...]     # 相机实时跑（默认 900 帧；例: demo cam 900 --cam-fps 60）
@@ -19,7 +20,8 @@
 # =============================================================================
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # 工程根目录（脚本在 <根>/tools/ 下）
+SELF="$(readlink -f "$0")"                 # 解析符号链接（从 ~/bin/demo 运行也能找到真实路径）
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"   # 工程根目录（脚本在 <根>/tools/ 下）
 RUNSH="$ROOT/tools/run-demo.sh"
 MODEL="./model/RK3588/best.rknn"           # 相对安装目录
 

@@ -11,6 +11,8 @@
 #include <deque>
 #include <chrono>
 #include <math.h>
+#include <unistd.h>     //isatty(fileno(stdout))：判断是否在终端里跑（决定要不要打 [live] 行）
+#include <opencv2/highgui.hpp>   //imshow/waitKey（--show 实时窗口用）
 #include "rknnPool.hpp" //模型池
 #include "serial_proto.hpp"         //B9:15 字节协议包(组包+CRC)
 #include "trajectory_predictor.hpp" //B9:轨迹预测器
@@ -69,9 +71,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 22)
+    if (argc < 3 || argc > 24)
     {
-        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv] [--forever]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv] [--forever] [--show] [--live]\n", argv[0]);
         return -1;
     }
 
@@ -89,6 +91,8 @@ int main(int argc, char **argv)
     int  cam_fps = 120;                  //--cam-fps N:摄像头帧率(默认 120)
     bool cam_yuyv = false;               //--cam-yuyv:用 YUYV 原始格式(默认 MJPG,高帧率必需)
     bool forever = false;                //--forever:无限模式(不数帧,跑到 Ctrl+C/被停)
+    bool show    = false;                //--show:实时窗口显示(需要图形界面 DISPLAY)
+    bool live    = false;                //--live:强制每秒状态行(默认在终端里跑就自动开)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
@@ -103,6 +107,8 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--cam-fps")== 0 && i + 1 <argc) cam_fps = atoi(argv[++i]);
         else if (strcmp(argv[i], "--cam-yuyv")== 0)                cam_yuyv = true;
         else if (strcmp(argv[i], "--forever")== 0)                forever = true;
+        else if (strcmp(argv[i], "--show")   == 0)                show    = true;
+        else if (strcmp(argv[i], "--live")   == 0)                live    = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
@@ -110,6 +116,10 @@ int main(int argc, char **argv)
            max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms,
            serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)",
            (int)!nogate, vis_path ? vis_path : "(off)", (int)forever);     //回显
+
+    //--show 只在流水线模式有意义；且需要图形界面（ssh 会话 DISPLAY 为空 → 自动忽略）
+    if (show && !pipe)     { printf("[warn] --show 只在 --pipe 流水线模式生效——已忽略\n"); show = false; }
+    if (show && !getenv("DISPLAY")) { printf("[warn] --show 需要图形界面（DISPLAY 为空）——已忽略\n"); show = false; }
 
 
 
@@ -278,6 +288,10 @@ int main(int argc, char **argv)
         uint64_t last_seq = 0;
         size_t   results  = 0;
         const int64_t t_start = cv::getTickCount();
+        const bool live_on = live || isatty(fileno(stdout));   //终端直接跑→默认开状态行
+        int64_t t_live = cv::getTickCount();
+        float   l_cx = 0, l_cy = 0, l_r = 0;                   //最近一次检测（状态行用）
+        bool    l_det = false, l_pred = false;
 
         //显示槽 + 显示线程
         FrameSlot dslot;
@@ -290,6 +304,7 @@ int main(int argc, char **argv)
                 cv::Mat  dimg;
                 int64_t  dt     = 0;
                 size_t   vsave  = 0;
+                int64_t  t_show = 0;
                 while (disp_run)
                 {
                     if (dslot.read_newer(d_last, dimg, dt))
@@ -302,7 +317,27 @@ int main(int argc, char **argv)
                             cv::imwrite(fn, dimg);
                             ++vsave;
                         }
-                        else
+                        if (show)
+                        {
+                            //--show:实时窗口（限 ~30fps 刷新，别抢 NPU worker 的 CPU）
+                            const int64_t tn = cv::getTickCount();
+                            if (tn - t_show >= (int64_t)(freq / 30.0))
+                            {
+                                t_show = tn;
+                                try
+                                {
+                                    cv::imshow("rknn-ball", dimg);
+                                    cv::waitKey(1);
+                                    ++shown;
+                                }
+                                catch (const cv::Exception &e)
+                                {
+                                    printf("[warn] imshow 失败（%s）——关闭窗口显示，继续跑\n", e.what());
+                                    show = false;
+                                }
+                            }
+                        }
+                        if (!vis_path && !show)
                         {
                             //可被打断的睡眠(模拟慢显示)
                             for (int left = disp_ms; left > 0 && disp_run; left -= 50)
@@ -319,6 +354,7 @@ int main(int argc, char **argv)
                     }
                 }
                 if (vis_path) printf("[vis] 已落盘 %u 帧 -> %s\n", (unsigned)vsave, vis_path);
+                if (show)     { try { cv::destroyAllWindows(); } catch (...) {} }
             }
         );
 
@@ -358,11 +394,14 @@ int main(int argc, char **argv)
 
                 PredictOutput po{};                                 //本帧预测输出(组包/可视化共用)
                 //B9:预测 -> 组包 -> 发串口(时间戳 = 本帧采集时刻)
-                if (serial_dev || pred_log || vis_path)
+                //（--show/--live 也要跑预测：窗口叠图和状态行都要用 po）
+                if (serial_dev || pred_log || vis_path || show || live_on)
                 {
                     ++pkt_try;
                     const double t_ms = t0 * 1000.0 / freq;
                     po = predictor.update(r.balls, t_ms);
+                    l_det = po.detect_ok; l_pred = po.predict_ok;
+                    l_cx = po.cx; l_cy = po.cy; l_r = po.r;
 
                     //偏差相对图像中心(沿用原工程约定)
                     const int icx = r.image.cols / 2;
@@ -413,6 +452,30 @@ int main(int argc, char **argv)
                     }
                 }
 
+                //--live / 终端直接跑：每秒一行状态（\r 就地刷新，不刷屏）
+                if (live_on)
+                {
+                    const int64_t tn = cv::getTickCount();
+                    if ((tn - t_live) >= (int64_t)freq)
+                    {
+                        t_live = tn;
+                        const double w_ms = (tn - t_start) * 1000.0 / freq;
+                        char lbuf[256];
+                        if (l_det)
+                            snprintf(lbuf, sizeof lbuf,
+                                     "[live] 采集 %.0f | 结果 %.0f fps | 延迟 %.1f/%.1f ms | #%u | cand %d | det (%.0f,%.0f) r=%.0f | pred %d",
+                                     captured * 1000.0 / w_ms, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx,
+                                     (unsigned)results, (int)r.balls.size(), l_cx, l_cy, l_r, (int)l_pred);
+                        else
+                            snprintf(lbuf, sizeof lbuf,
+                                     "[live] 采集 %.0f | 结果 %.0f fps | 延迟 %.1f/%.1f ms | #%u | cand %d | 无球",
+                                     captured * 1000.0 / w_ms, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx,
+                                     (unsigned)results, (int)r.balls.size());
+                        printf("\r%-120s", lbuf);
+                        fflush(stdout);
+                    }
+                }
+
                 //画框
                 for (int k = 0; k < (int)r.balls.size(); k++)
                 {
@@ -421,8 +484,8 @@ int main(int argc, char **argv)
                     cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
                 }
 
-                //B9可视化(--vis):候选/锁定/尾迹/初始点/预测点/落点外推
-                if (vis_path)
+                //B9可视化(--vis/--show):候选/锁定/尾迹/初始点/预测点/落点外推
+                if (vis_path || show)
                 {
                     // 全部候选(细灰)——包括被门限拒收的
                     for (int k = 0; k < (int)r.balls.size(); k++)
@@ -508,6 +571,8 @@ int main(int argc, char **argv)
         disp_run    = false;
         capThread.join();
         dispThread.join();
+
+        if (live_on) printf("\n");      //给 [live] 的 \r 行收个尾
 
         //汇总
         const double wall = (cv::getTickCount() - t_start) * 1000.0 / freq;

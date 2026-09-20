@@ -33,14 +33,18 @@ cmd="${1:-help}"
 case "$cmd" in
   cam)
     frames="${1:-900}"; [ $# -gt 0 ] && shift
+    SHOWARG=""
+    [ -n "${DISPLAY:-}" ] && SHOWARG="--show"     # 板子有桌面（DISPLAY 非空）就自动开实时窗口
     if [ "$frames" = "0" ] || [ "$frames" = "inf" ] || [ "$frames" = "forever" ]; then
         echo "[board] 无限模式（Ctrl+C 停止）"
-        exec bash "$RUNSH" "$MODEL" /dev/video0 1 --quiet --pipe --forever "$@"
+        exec bash "$RUNSH" "$MODEL" /dev/video0 1 --quiet --pipe --forever $SHOWARG "$@"
     fi
-    exec bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe "$@"
+    exec bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe $SHOWARG "$@"
     ;;
   vis)
     frames="${1:-600}"; [ $# -gt 0 ] && shift
+    SHOWARG=""
+    [ -n "${DISPLAY:-}" ] && SHOWARG="--show"     # 录制时也开窗口（方便对准场景）
     if [ "$frames" = "0" ] || [ "$frames" = "inf" ] || [ "$frames" = "forever" ]; then
         echo "[board] ⚠️ vis 不支持无限（磁盘会被塞满）——请给帧数，例如 demo vis 1800"
         exit 1
@@ -48,7 +52,7 @@ case "$cmd" in
     out="${VIS_OUT:-/tmp/rknn_vis}"
     rm -rf "$out"; mkdir -p "$out"
     echo "[board] 录制 $frames 帧 -> $out"
-    bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe --vis "$out" "$@"
+    bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe --vis "$out" $SHOWARG "$@"
     echo "[board] 合成 mp4 ..."
     if ffmpeg -y -framerate 60 -i "$out/f_%06d.jpg" -c:v libx264 -pix_fmt yuv420p -crf 23 "$out.mp4" -loglevel error; then
         echo "[board] ✅ 标注视频: $out.mp4"

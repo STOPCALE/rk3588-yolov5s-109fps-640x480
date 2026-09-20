@@ -6,6 +6,11 @@
 #include <string.h>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/videoio.hpp>
+#include <thread>
+#include <atomic>
+#include <deque>
+#include <chrono>
+#include "rknnPool.hpp" //模型池
 
 //计时系统，对实时系统进行判断的
 struct StageStat
@@ -23,11 +28,46 @@ struct StageStat
     double avg() const { return n ? sum / n : 0.0; }
 };
 
+struct FrameSlot
+{
+    std::mutex mtx;
+    cv::Mat    img;     //拥有像素
+    int64_t    t    = 0;    //采集时刻
+    uint64_t   seq  = 0;    //帧序号
+
+    //采集线程，写入像素
+    void write(cv::Mat m, int64_t tick)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        img = std::move(m);
+        t   = tick;
+        ++seq;
+    }
+
+    //结果线程：只更新比上次大的
+    bool read_newer(uint64_t &last_seq, cv::Mat &out, int64_t &tick)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (seq == last_seq) return false;
+        last_seq    = seq;
+        out         = std::move(img);
+        tick        = t;
+        return true;
+    }
+
+    //结果线程：收尾判断
+    bool has_newer(uint64_t last_seq)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        return seq != last_seq;
+    }
+};
+
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 6)
+    if (argc < 3 || argc > 7)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe]\n", argv[0]);
         return -1;
     }
 
@@ -35,25 +75,30 @@ int main(int argc, char **argv)
     int max_frames  = 3;
     bool quiet      = false;
     bool fast       = false;    //全速喂帧
+    bool pipe       = false;    //三线程流水线模式
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
         else if (strcmp(argv[i], "--fast")  == 0)    fast  = true;
+        else if (strcmp(argv[i], "--pipe")  == 0)    pipe  = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d\n", max_frames, (int)quiet, (int)fast);     //回显
+    printf("frame = %d quiet = %d fast = %d pipe = %d\n", max_frames, (int)quiet, (int)fast, (int)pipe);     //回显
 
 
     rkYolov5s model(argv[1]);
-    if (model.init(nullptr, false) != 0)
+    if (!pipe)  //流水线模式用的模型池
     {
-        printf("model init failed\n");
-        return -1;
-    }
+        if (model.init(nullptr, false) != 0)
+        {
+            printf("model init failed\n");
+            return -1;
+        }
 
-    //B8-1d:静音开关接到模型
-    model.set_verbose(!quiet);
+        //B8-1d:静音开关接到模型
+        model.set_verbose(!quiet);
+    }
 
     const double freq = cv::getTickFrequency();     //每秒多少tick
     StageStat st_read, st_infer;
@@ -94,6 +139,106 @@ int main(int argc, char **argv)
                 (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
                 cap.get(cv::CAP_PROP_FPS),
                 cap.get(cv::CAP_PROP_FRAME_COUNT));
+    }
+
+    //三线程流水线
+    if (pipe)
+    {
+        if (!is_video)
+        {
+            printf("--pipe 只支持视频/流出入\n");
+            return -1;
+        }
+
+        //模型池：3实例/3NPU/共享权重
+        rknnPool<rkYolov5s, cv::Mat, FrameResult> pool(argv[1], 3);
+        if (pool.init() != 0) { printf("pool init failed\n"); return -1; }
+        pool.setMaxPending(3);  //Little定律
+        pool.setVerbose(!quiet);
+
+        //最新帧槽+采集线程
+        FrameSlot slot;
+        std::atomic<bool> running{true};
+        std::atomic<bool> eos{false};
+        size_t captured = 0;
+
+        std::thread capThread([&]()
+            {
+                while (running)
+                {
+                    cv::Mat img;
+                    if (!cap.read(img)) { eos = true; break; }
+                    slot.write(std::move(img), cv::getTickCount());
+                    ++captured;
+                }
+            }
+        );
+
+        //结果线程：喂帧，收结果，统计
+        std::deque<int64_t> ts; //旁路时间帧
+        StageStat st_lat;       //端到端延迟统计
+        uint64_t last_seq = 0;
+        size_t   results  = 0;
+        const int64_t t_start = cv::getTickCount();
+
+        while (running)
+        {
+            //喂：有新帧就投池
+            cv::Mat img;
+            int64_t t_cap = 0;
+            if (slot.read_newer(last_seq, img, t_cap))
+            {
+                if (pool.put(img) == 0) ts.push_back(t_cap);
+            }
+
+            //收：取最早结果
+            if (pool.pending() > 0)
+            {
+                FrameResult r;
+                if (pool.get(r) == 0)
+                {
+                    const int64_t t0 = ts.front(); ts.pop_front();
+                    st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
+                    ++results;
+
+                    //画框
+                    for (int k = 0; k < (int)r.balls.size(); k++)
+                    {
+                        const vb_ball_t &b = r.balls[k];
+                        const cv::Point c((int)(b.cx + 0.5f), (int)(b.cy + 0.5f));
+                        cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
+                    }
+
+                    if ((int)results >= max_frames) break;
+                }
+            }
+
+            //收尾：采集结束+池空+没新帧+全处理完了
+            else if (eos && !slot.has_newer(last_seq))
+            {
+                break;
+            }
+
+            //没事干睡1ms
+            else
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        running = false;
+        capThread.join();
+
+        //汇总
+        const double wall = (cv::getTickCount() - t_start) * 1000.0 / freq;
+        printf("\n=========== 流水线汇总（--pipe）===========\n");
+        printf("  采集 %u 帧   结果 %u 帧   墙钟 %.2f s\n",
+               (unsigned)captured, (unsigned)results, wall / 1000.0);
+        printf("  结果吞吐 %.1f fps   采集吞吐 %.1f fps\n",
+               results * 1000.0 / wall, captured * 1000.0 / wall);
+        printf("  端到端延迟 ms: 平均 %.2f  最小 %.2f  最大 %.2f\n", st_lat.avg(), st_lat.mn, st_lat.mx);
+        printf("  拒收 %u 帧   残余在途 %u\n", (unsigned)pool.dropped(), (unsigned)pool.pending());
+        return 0;
     }
 
     for (int f = 0; f < max_frames; f++)

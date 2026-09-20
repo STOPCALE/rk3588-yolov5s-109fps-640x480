@@ -48,6 +48,13 @@ public:
     int get(outputType &outputData);
     // 限制在途帧数上限: 越小端到端延迟越低, 吞吐略降; 0 = 不限制
     void setMaxPending(size_t n) { maxPending_ = n; }
+
+    //把开关转发给所有模型
+    void setVerbose(bool v)
+    {
+        for (auto &m : models) m->set_verbose(v);
+    }
+
     // 当前在途帧数(可用它估算端到端延迟)
     size_t pending();
     // 累计被丢弃的帧数
@@ -155,7 +162,7 @@ rknnPool<rknnModel, inputType, outputType>::~rknnPool()
 {
     while (!futs.empty())
     {
-        outputType temp = futs.front().get();
+        futs.front().get();         //算完再丢
         futs.pop();
     }
 }

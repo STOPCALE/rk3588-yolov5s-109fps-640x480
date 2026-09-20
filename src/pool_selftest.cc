@@ -12,8 +12,7 @@
 //
 //  【在板子上编译 + 运行】
 //      cd ~/myproj
-//      g++ -O2 -std=c++14 -Iinclude src/pool_selftest.cc -o /tmp/pool_selftest \
-//          $(pkg-config --cflags --libs opencv4) -pthread
+//      g++ -O2 -std=c++14 -Iinclude src/pool_selftest.cc -o /tmp/pool_selftest $(pkg-config --cflags --libs opencv4) -pthread
 //      taskset -c 4-7 /tmp/pool_selftest
 //
 //  【怎么读结果】三项全 PASS 时退出码 = 0。

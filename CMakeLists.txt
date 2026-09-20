@@ -50,12 +50,13 @@ set(RKNN_COMMON_SRC
         src/postprocess.cc
         # src/preprocess.cc
         src/rkYolov5s.cc
-        # src/uart.c
 )
 
 # 主程序（业务）
 add_executable(my_rknn_yolov5_demo
         src/main.cc
+        src/uart.c                     # B9:串口底层(C 文件)
+        src/trajectory_predictor.cc    # B9:轨迹预测器
         ${RKNN_COMMON_SRC}
 )
 

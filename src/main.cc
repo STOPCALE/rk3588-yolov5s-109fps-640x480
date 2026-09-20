@@ -10,7 +10,11 @@
 #include <atomic>
 #include <deque>
 #include <chrono>
+#include <math.h>
 #include "rknnPool.hpp" //模型池
+#include "serial_proto.hpp"         //B9:15 字节协议包(组包+CRC)
+#include "trajectory_predictor.hpp" //B9:轨迹预测器
+#include "uart.h"                   //B9:串口底层
 
 //计时系统，对实时系统进行判断的
 struct StageStat
@@ -65,9 +69,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 9)
+    if (argc < 3 || argc > 11)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev]\n", argv[0]);
         return -1;
     }
 
@@ -77,16 +81,19 @@ int main(int argc, char **argv)
     bool fast       = false;    //全速喂帧
     bool pipe       = false;    //三线程流水线模式
     int disp_ms    = 500;      //显示间隔
+    const char *serial_dev = nullptr;   //--serial <设备>:给了才发串口(B9)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
         else if (strcmp(argv[i], "--fast")  == 0)    fast  = true;
         else if (strcmp(argv[i], "--pipe")  == 0)    pipe  = true;
         else if (strcmp(argv[i], "--disp")  == 0 && i + 1 <argc) disp_ms = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--serial")== 0 && i + 1 <argc) serial_dev = argv[++i];
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d\n", max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms);     //回显
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s\n",
+           max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms, serial_dev ? serial_dev : "(off)");     //回显
 
 
 
@@ -158,6 +165,18 @@ int main(int argc, char **argv)
         if (pool.init() != 0) { printf("pool init failed\n"); return -1; }
         pool.setMaxPending(3);  //Little定律
         pool.setVerbose(!quiet);
+
+        //B9:串口 + 轨迹预测器(只有给了 --serial 才启用)
+        int uart_fd = -1;
+        if (serial_dev)
+        {
+            uart_fd = uart_open(serial_dev, 115200);
+            if (uart_fd < 0)    printf("[warn] 串口打不开:%s(继续运行,但不发包)\n", serial_dev);
+            else                printf("[serial] %s @115200 已打开\n", serial_dev);
+        }
+        TrajectoryPredictor predictor;      //轨迹预测器(真实时间戳版)
+        StageStat st_send;                  //串口发送耗时统计
+        size_t pkt_try = 0, pkt_sent = 0, pkt_fail = 0;
 
         //最新帧槽+采集线程
         FrameSlot slot;
@@ -239,6 +258,54 @@ int main(int argc, char **argv)
                 st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);
                 ++results;
 
+                //B9:预测 -> 组包 -> 发串口(时间戳 = 本帧采集时刻)
+                if (serial_dev)
+                {
+                    ++pkt_try;
+                    const double t_ms = t0 * 1000.0 / freq;
+                    PredictOutput po = predictor.update(r.balls, t_ms);
+
+                    //偏差相对图像中心(沿用原工程约定)
+                    const int icx = r.image.cols / 2;
+                    const int icy = r.image.rows / 2;
+
+                    int16_t  ddx = 0, ddy = 0, pdx = 0, pdy = 0;
+                    uint16_t rad = 0;
+                    if (po.detect_ok)
+                    {
+                        ddx = (int16_t)lround(po.cx - icx);
+                        ddy = (int16_t)lround(po.cy - icy);
+                        const float rr = po.r < 0 ? 0.f : (po.r > 65535.f ? 65535.f : po.r);
+                        rad = (uint16_t)lround(rr);
+                    }
+                    if (po.predict_ok)
+                    {
+                        pdx = (int16_t)lround(po.pred_cx - icx);
+                        pdy = (int16_t)lround(po.pred_cy - icy);
+                    }
+
+                    TargetPacket pkt;
+                    proto_build(pkt, ddx, ddy, pdx, pdy, rad, po.detect_ok, po.predict_ok);
+
+                    if (uart_fd >= 0)
+                    {
+                        const int64_t ts0 = cv::getTickCount();
+                        const ssize_t wn = uart_write(uart_fd, &pkt, sizeof pkt);
+                        st_send.add((cv::getTickCount() - ts0) * 1000.0 / freq);
+                        if (wn == (ssize_t)sizeof pkt) ++pkt_sent;
+                        else                           ++pkt_fail;
+                    }
+
+                    //前 5 包打印 hex,方便肉眼对照
+                    if (!quiet && pkt_try <= 5)
+                    {
+                        const uint8_t *pb = reinterpret_cast<const uint8_t *>(&pkt);
+                        printf("[pkt %u] ", (unsigned)pkt_try);
+                        for (size_t bi = 0; bi < sizeof pkt; bi++) printf("%02X ", pb[bi]);
+                        printf("| det=%d pred=%d\n", (int)po.detect_ok, (int)po.predict_ok);
+                    }
+                }
+
                 //画框
                 for (int k = 0; k < (int)r.balls.size(); k++)
                 {
@@ -278,7 +345,13 @@ int main(int argc, char **argv)
                results * 1000.0 / wall, captured * 1000.0 / wall);
         printf("  端到端延迟 ms: 平均 %.2f  最小 %.2f  最大 %.2f\n", st_lat.avg(), st_lat.mn, st_lat.mx);
         printf("  拒收 %u 帧   残余在途 %u\n", (unsigned)pool.dropped(), (unsigned)pool.pending());
-        printf("  显示存图 %u 张（间隔 %d ms）\n", (unsigned)shown, disp_ms);
+        printf("  显示存图 %u 张(间隔 %d ms)\n", (unsigned)shown, disp_ms);
+        if (serial_dev)
+        {
+            printf("  串口发包 %u 个(失败 %u) 发送耗时 ms: 平均 %.3f 最大 %.3f\n",
+                   (unsigned)pkt_sent, (unsigned)pkt_fail, st_send.avg(), st_send.mx);
+        }
+        if (uart_fd >= 0) uart_close(uart_fd);
         return 0;
     }
 

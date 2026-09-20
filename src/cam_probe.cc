@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     int         w = 640, h = 480, fps = 120, sec = 8;
     const char *fourcc = "MJPG";
     const char *save   = "/tmp/camprobe";
-    int         buf    = 1;          // 驱动缓冲数：1=最省延迟但可能丢帧；0=不设，用默认
+    int         buf    = 2;          // 驱动缓冲数：实测 1 会每两帧丢一帧(120fps->62fps)；0=不设用默认
     bool        list   = true;
     for (int i = 2; i < argc; i++)
     {
@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         char cmd[512];
         snprintf(cmd, sizeof cmd, "v4l2-ctl -d %s --list-formats-ext 2>&1", dev);
         printf("===== 相机能力（%s）=====\n", dev);
-        system(cmd);
+        (void)system(cmd);
         printf("===== 体检开始 =====\n");
     }
 
@@ -83,7 +83,7 @@ int main(int argc, char **argv)
     {
         char cmd[600];
         snprintf(cmd, sizeof cmd, "mkdir -p %s", save);
-        system(cmd);
+        (void)system(cmd);
     }
 
     const double  freq = cv::getTickFrequency();

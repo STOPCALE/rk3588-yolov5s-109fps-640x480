@@ -4,7 +4,7 @@
 #include "opencv2/imgproc.hpp"
 #include <stdlib.h>
 #include <opencv2/core/utility.hpp>
-#include <opencv2/video.hpp>
+#include <opencv2/videoio.hpp>
 
 //计时系统，对实时系统进行判断的
 struct StageStat
@@ -49,17 +49,48 @@ int main(int argc, char **argv)
     const double freq = cv::getTickFrequency();     //每秒多少tick
     StageStat st_read, st_infer;
 
+    //判断第二个是图片还是视频
+    cv::Mat prode = cv::imread(argv[2]);
+
+    cv::VideoCapture cap;   //播放器：有当前位置，能一帧一帧走
+    bool is_video = false;
+
+    if (prode.empty())
+    {
+        if (!cap.open(argv[2])) { printf("打不开：%s\n", argv[2]); return -1;}
+        is_video = true;
+
+        printf("video: %dx%d %.1f fps %0.f 帧\n",
+                (int)cap.get(cv::CAP_PROP_FRAME_WIDTH),
+                (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
+                cap.get(cv::CAP_PROP_FPS),
+                cap.get(cv::CAP_PROP_FRAME_COUNT));
+    }
+
     for (int f = 0; f < max_frames; f++)
     {
         printf("--- frame %d ---\n", f);
 
         //取一帧
         int64_t t = cv:: getTickCount();
-        cv::Mat img = cv::imread(argv[2]);
+        cv::Mat img;
+
+        if (is_video)
+        {
+            //读下一帧，读到结尾返回false
+            if (!cap.read(img)) { printf("视频结束（共%d帧）\n", f); break; }
+        }
+        else
+        {
+            //图片：从头解读一边
+            img = cv::imread(argv[2]);
+            if (img.empty())    { printf("读不到图片：%s\n", argv[2]); return -1; }
+        }
+
         st_read.add((cv::getTickCount() - t) * 1000.0 / freq);
 
-        if (img.empty()) { printf("read image %s failed\n", argv[2]); return -1; }
-        if (f == 0) printf("image: %dx%d channels=%d\n", img.cols, img.rows, img.channels());
+        if (f == 0 && !is_video)    { printf("image: %dx%d channels=%d\n", img.cols, img.rows, img.channels()); }
+
 
         //推理一帧
         t = cv::getTickCount();

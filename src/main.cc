@@ -238,7 +238,34 @@ int main(int argc, char **argv)
                 while (running)
                 {
                     cv::Mat img;
-                    if (!cap.read(img)) { eos = true; break; }
+                    if (!cap.read(img))
+                    {
+                        if (!is_cam) { eos = true; break; }   //视频文件：读完就是读完
+                        //摄像头掉线（USB 偶发断开，dmesg 报 URB 失败）：
+                        //尝试重连（最多 30 次 × 1s），成功则继续跑；失败才收工
+                        printf("[cam] 读帧失败，尝试重连 ...\n");
+                        fflush(stdout);
+                        bool ok = false;
+                        for (int k = 0; k < 30 && running; k++)
+                        {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                            cap.release();
+                            if (cap.open(argv[2], cv::CAP_V4L2))
+                            {
+                                cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
+                                if (!cam_yuyv) cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
+                                cap.set(cv::CAP_PROP_FRAME_WIDTH,  cam_w);
+                                cap.set(cv::CAP_PROP_FRAME_HEIGHT, cam_h);
+                                cap.set(cv::CAP_PROP_FPS,          cam_fps);
+                                ok = true;
+                                break;
+                            }
+                        }
+                        if (!ok) { eos = true; break; }
+                        printf("[cam] 重连成功，继续\n");
+                        fflush(stdout);
+                        continue;
+                    }
                     slot.write(std::move(img), cv::getTickCount());
                     ++captured;
                 }

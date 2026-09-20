@@ -88,7 +88,10 @@ if ($LASTEXITCODE -ne 0) { Fail "cmake --install 失败" }
 Write-Host ""
 Done "全部完成 🎉"
 Write-Host ""
-Write-Host "运行方式：" -ForegroundColor Cyan
-Write-Host "  ssh $BOARD" -ForegroundColor Gray
-Write-Host "  cd $BOARD_DIR/install/my_rknn_yolov5_demo_aarch64" -ForegroundColor Gray
-Write-Host "  ./my_rknn_yolov5_demo ./model/RK3588/best.rknn <视频路径>" -ForegroundColor Gray
+Write-Host "运行方式（复制即可跑）：" -ForegroundColor Cyan
+Write-Host "  ssh board `"bash ~/myproj/tools/run-demo.sh ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200`"" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  或者进板子手动跑（注意绑大核）：" -ForegroundColor Gray
+Write-Host "    ssh board" -ForegroundColor Gray
+Write-Host "    cd ~/myproj/install/my_rknn_yolov5_demo_aarch64" -ForegroundColor Gray
+Write-Host "    taskset -c 4-7 ./my_rknn_yolov5_demo ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200" -ForegroundColor Gray

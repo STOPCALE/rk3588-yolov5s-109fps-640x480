@@ -3,6 +3,7 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
 #include <stdlib.h>
+#include <string.h>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/videoio.hpp>
 
@@ -24,17 +25,22 @@ struct StageStat
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc >4)
+    if (argc < 3 || argc > 5)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet]\n", argv[0]);
         return -1;
     }
 
-    //第四个参数可选，循环多少次，不给就三次
-    int max_frames = 3;
-    if (argc == 4) max_frames = atoi(argv[3]);
+    //可选参数，第3-4位放循环次数或者quiet
+    int max_frames  = 3;
+    bool quiet      = false;
+    for (int i =3; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--quiet") == 0)    quiet =true;
+        else                                    max_frames = atoi(argv[i]);
+    }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d\n", max_frames);     //回显
+    printf("frame = %d quiet = %d\n", max_frames, (int)quiet);     //回显
 
 
     rkYolov5s model(argv[1]);
@@ -44,7 +50,8 @@ int main(int argc, char **argv)
         return -1;
     }
 
-
+    //B8-1d:静音开关接到模型
+    model.set_verbose(!quiet);
 
     const double freq = cv::getTickFrequency();     //每秒多少tick
     StageStat st_read, st_infer;
@@ -74,7 +81,7 @@ int main(int argc, char **argv)
 
     for (int f = 0; f < max_frames; f++)
     {
-        printf("--- frame %d ---\n", f);
+        if (!quiet) printf("--- frame %d ---\n", f);
 
         //取一帧
         int64_t t = cv:: getTickCount();
@@ -102,12 +109,12 @@ int main(int argc, char **argv)
         FrameResult r =model.infer(img);
         st_infer.add((cv::getTickCount() - t) * 1000.0 / freq);
 
-        printf("检测到 %d 个球;\n", (int)r.balls.size());
+        if (!quiet) printf("检测到 %d 个球;\n", (int)r.balls.size());
         for (int k = 0; k < (int)r.balls.size(); k++)
         {
             const vb_ball_t &b = r.balls[k];
-            printf(" [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f\n",
-                    k, b.cx, b.cy, b.radius, b.prop);
+            if (!quiet) printf(" [%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f\n",
+                                k, b.cx, b.cy, b.radius, b.prop);
 
             //画圆(绿)
             const cv::Point c((int)(b.cx + 0.5f), (int)(b.cy + 0.5f));

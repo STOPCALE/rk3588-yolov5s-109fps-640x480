@@ -21,12 +21,18 @@ public:
     //需要其做dup
     rknn_context *get_pctx();
 
+    //B8-1d:诊断打印开关
+    void set_verbose(bool v) { verbose = v; }
+
     FrameResult infer(cv::Mat &orig_img);
 
 private:
     std::string model_path;
     float nms_threshold = 0.45f;
     float box_conf_threshold = 0.25f;
+
+    //诊断开关
+    bool verbose = true;
 
     //rknn_init会拷贝，之后释放
     unsigned char         *model_data   = nullptr;

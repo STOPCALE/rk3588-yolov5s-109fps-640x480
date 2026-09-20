@@ -26,13 +26,14 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        printf("用法: %s <设备> [--size WxH] [--fps N] [--fourcc MJPG|YUYV] [--sec N] [--save 目录] [--no-list]\n", argv[0]);
+        printf("用法: %s <设备> [--size WxH] [--fps N] [--fourcc MJPG|YUYV] [--sec N] [--buf N] [--save 目录] [--no-list]\n", argv[0]);
         return -1;
     }
     const char *dev    = argv[1];
     int         w = 640, h = 480, fps = 120, sec = 8;
     const char *fourcc = "MJPG";
     const char *save   = "/tmp/camprobe";
+    int         buf    = 1;          // 驱动缓冲数：1=最省延迟但可能丢帧；0=不设，用默认
     bool        list   = true;
     for (int i = 2; i < argc; i++)
     {
@@ -40,6 +41,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--fps")    && i + 1 < argc) fps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fourcc") && i + 1 < argc) fourcc = argv[++i];
         else if (!strcmp(argv[i], "--sec")    && i + 1 < argc) sec = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--buf")    && i + 1 < argc) buf = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--save")   && i + 1 < argc) save = argv[++i];
         else if (!strcmp(argv[i], "--no-list"))                list = false;
     }
@@ -56,7 +58,7 @@ int main(int argc, char **argv)
 
     cv::VideoCapture cap;
     if (!cap.open(dev, cv::CAP_V4L2)) { printf("打开失败: %s\n", dev); return -1; }
-    cap.set(cv::CAP_PROP_BUFFERSIZE, 1);         // 只留 1 帧驱动缓冲（防陈旧帧积压）
+    if (buf > 0) cap.set(cv::CAP_PROP_BUFFERSIZE, buf);   // 驱动缓冲数（1=最省延迟但可能丢帧; 0=不设用默认）
     if (strcmp(fourcc, "YUYV") != 0 && strcmp(fourcc, "yuyv") != 0)
         cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     else
@@ -67,7 +69,7 @@ int main(int argc, char **argv)
 
     {
         const int  fc = (int)cap.get(cv::CAP_PROP_FOURCC);
-        printf("[req] %dx%d@%d %s\n", w, h, fps, fourcc);
+        printf("[req] %dx%d@%d %s buf=%d\n", w, h, fps, fourcc, buf);
         printf("[act] %dx%d %.1f fps '%c%c%c%c'\n",
                (int)cap.get(cv::CAP_PROP_FRAME_WIDTH), (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
                cap.get(cv::CAP_PROP_FPS),

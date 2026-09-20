@@ -4,6 +4,7 @@
 #include "opencv2/imgproc.hpp"
 #include <stdlib.h>
 #include <opencv2/core/utility.hpp>
+#include <opencv2/video.hpp>
 
 //计时系统，对实时系统进行判断的
 struct StageStat

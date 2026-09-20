@@ -52,7 +52,8 @@ int main(int argc, char **argv)
         char cmd[512];
         snprintf(cmd, sizeof cmd, "v4l2-ctl -d %s --list-formats-ext 2>&1", dev);
         printf("===== 相机能力（%s）=====\n", dev);
-        (void)system(cmd);
+        const int rc_list = system(cmd);
+        (void)rc_list;
         printf("===== 体检开始 =====\n");
     }
 
@@ -83,7 +84,8 @@ int main(int argc, char **argv)
     {
         char cmd[600];
         snprintf(cmd, sizeof cmd, "mkdir -p %s", save);
-        (void)system(cmd);
+        const int rc_mk = system(cmd);
+        (void)rc_mk;
     }
 
     const double  freq = cv::getTickFrequency();

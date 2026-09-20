@@ -292,6 +292,9 @@ int main(int argc, char **argv)
         int64_t t_live = cv::getTickCount();
         float   l_cx = 0, l_cy = 0, l_r = 0;                   //最近一次检测（状态行用）
         bool    l_det = false, l_pred = false;
+        size_t  cap_prev = 0, res_prev = 0;                    //上一秒计数（算"瞬时"速率）
+        size_t  hb_prev  = 0;                                  //上一次心跳时的帧数
+        int64_t t_hb     = t_start;                            //上一次心跳时刻
 
         //显示槽 + 显示线程
         FrameSlot dslot;
@@ -384,11 +387,16 @@ int main(int argc, char **argv)
                 ++results;
 
                 //长跑心跳：每 3000 帧（≈30s）打印一行——无限模式/后台日志的“体检指标”
+                //  口径说明：“本段”= 两次心跳之间的瞬时速率（真实性能）；
+                //           “累计”= 从启动到现在的平均（会被早期掉线/爬坡长期拉低——别用它下结论）
                 if (results % 3000 == 0)
                 {
-                    const double w_ms = (cv::getTickCount() - t_start) * 1000.0 / freq;
-                    printf("[hb] %u 帧  墙钟 %.1f s  平均 %.1f fps  延迟 avg %.2f / max %.2f ms\n",
-                           (unsigned)results, w_ms / 1000.0, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx);
+                    const int64_t tn = cv::getTickCount();
+                    const double  el = (tn - t_start) / freq;
+                    const double  sg = (tn - t_hb) / freq;
+                    printf("[hb] %u 帧 | 本段 %.1f fps | 累计 %.1f fps | 延迟 avg %.2f / max %.2f ms\n",
+                           (unsigned)results, (results - hb_prev) / sg, results / el, st_lat.avg(), st_lat.mx);
+                    hb_prev = results; t_hb = tn;
                     fflush(stdout);
                 }
 
@@ -452,26 +460,28 @@ int main(int argc, char **argv)
                     }
                 }
 
-                //--live / 终端直接跑：每秒一行状态（\r 就地刷新，不刷屏）
+                //--live / 终端直接跑：每秒一行状态（\r 就地刷新，不刷屏；fps 为本秒瞬时值）
                 if (live_on)
                 {
                     const int64_t tn = cv::getTickCount();
                     if ((tn - t_live) >= (int64_t)freq)
                     {
-                        t_live = tn;
-                        const double w_ms = (tn - t_start) * 1000.0 / freq;
+                        const double sec  = (tn - t_live) / freq;          //距上次打印的秒数
+                        const double icap = (captured - cap_prev) / sec;   //本秒瞬时采集 fps
+                        const double ires = (results  - res_prev) / sec;   //本秒瞬时结果 fps
+                        t_live = tn; cap_prev = captured; res_prev = results;
                         char lbuf[256];
                         if (l_det)
                             snprintf(lbuf, sizeof lbuf,
-                                     "[live] 采集 %.0f | 结果 %.0f fps | 延迟 %.1f/%.1f ms | #%u | cand %d | det (%.0f,%.0f) r=%.0f | pred %d",
-                                     captured * 1000.0 / w_ms, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx,
+                                     "[live] 采集 %.0f | 结果 %.0f fps（瞬时）| 延迟 %.1f/%.1f ms | #%u | cand %d | det (%.0f,%.0f) r=%.0f | pred %d",
+                                     icap, ires, st_lat.avg(), st_lat.mx,
                                      (unsigned)results, (int)r.balls.size(), l_cx, l_cy, l_r, (int)l_pred);
                         else
                             snprintf(lbuf, sizeof lbuf,
-                                     "[live] 采集 %.0f | 结果 %.0f fps | 延迟 %.1f/%.1f ms | #%u | cand %d | 无球",
-                                     captured * 1000.0 / w_ms, results * 1000.0 / w_ms, st_lat.avg(), st_lat.mx,
+                                     "[live] 采集 %.0f | 结果 %.0f fps（瞬时）| 延迟 %.1f/%.1f ms | #%u | cand %d | 无球",
+                                     icap, ires, st_lat.avg(), st_lat.mx,
                                      (unsigned)results, (int)r.balls.size());
-                        printf("\r%-120s", lbuf);
+                        printf("\r%-130s", lbuf);
                         fflush(stdout);
                     }
                 }

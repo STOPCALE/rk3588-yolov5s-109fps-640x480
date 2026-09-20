@@ -65,9 +65,14 @@ add_executable(bench_throughput
         ${RKNN_COMMON_SRC}
 )
 
-# 两个目标的编译/链接设置完全一样，用 foreach 一次配好，
-# 以后再加第三个工具也不用复制粘贴
-foreach(tgt my_rknn_yolov5_demo bench_throughput)
+# 视频解码探针（诊断工具，不跑模型；见 src/probe_video.cc 头部注释）
+add_executable(probe_video
+        src/probe_video.cc
+)
+
+# 三个目标的编译/链接设置完全一样，用 foreach 一次配好，
+# 以后再加第四个工具也不用复制粘贴
+foreach(tgt my_rknn_yolov5_demo bench_throughput probe_video)
 
     target_include_directories(${tgt} PRIVATE
             ${CMAKE_SOURCE_DIR}/include
@@ -88,7 +93,7 @@ foreach(tgt my_rknn_yolov5_demo bench_throughput)
 endforeach()
 
 # ---------- 安装: 产出可直接拷贝到板子的自包含目录 ----------
-install(TARGETS my_rknn_yolov5_demo bench_throughput RUNTIME DESTINATION .)
+install(TARGETS my_rknn_yolov5_demo bench_throughput probe_video RUNTIME DESTINATION .)
 install(FILES ${RKNN_RT_LIB} ${RGA_LIB} DESTINATION lib)
 # 注意: model 后面不要加结尾斜杠, 否则会丢掉 model/ 这一层,
 #       而 postprocess.cc 里硬编码的是 ./model/coco_80_labels_list.txt

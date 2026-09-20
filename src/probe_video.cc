@@ -53,6 +53,7 @@ int main(int argc, char **argv)
             cap.get(cv::CAP_PROP_FPS));
     fprintf(stderr, "模式    : %s   连续失败上限 = %d\n",
             fresh ? "fresh（每帧新建 Mat）" : "reuse（复用同一个 Mat）", maxfail);
+    fprintf(stderr, "解码后端: %s\n", cap.getBackendName().c_str());
 
     cv::Mat shared;          // reuse 模式用
     int n = 0;               // 成功解出的帧数
@@ -79,6 +80,13 @@ int main(int argc, char **argv)
 
         ++consecutive;
         ++total_fail;
+        if (total_fail <= 20)
+        {
+            fprintf(stderr, "  [失败 #%d] 在第 %d 帧之后   POS_FRAMES=%.0f  POS_MSEC=%.0f\n",
+                    total_fail, n,
+                    cap.get(cv::CAP_PROP_POS_FRAMES),
+                    cap.get(cv::CAP_PROP_POS_MSEC));
+        }
         if (consecutive > max_consecutive) max_consecutive = consecutive;
         if (consecutive >= maxfail) break;     // 连续失败太多次，认定真结束了
     }

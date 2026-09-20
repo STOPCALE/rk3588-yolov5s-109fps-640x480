@@ -62,6 +62,7 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | `src/predictor_selftest.cc` | 预测器 T1~T6 | 动预测器后 | 合成数据 + 手算对照；T6 专测门限/锚点 |
 | `src/predictor_eval.cc` | 预测质量评估（误差 vs 零阶保持基线） | 拿到实拍 CSV 后 | 基线对照思想；只在"两帧都有检测"处比对 |
 | `src/cam_probe.cc` | 相机体检 | 换相机 / 换档位前 | 缓冲矩阵 + `v4l2-ctl` 独立实现交叉验证 |
+| `tools/board.sh`（板载入口 `demo`） | 板子上敲 `demo cam/vis/test/lock/status/off` 的统一入口（已配 `~/bin/demo`） | 板子上日常使用（不在 PC 旁边时） | 包装 `run-demo.sh`（找安装目录+绑大核+锁频警告）；`readlink -f "$0"` 支持符号链接启动 |
 
 ## 4. 掌握标准（自查表）
 
@@ -72,6 +73,7 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 - [ ] 能解释：`BUFFERSIZE=1` 为什么把 120fps 变成 62fps
 - [ ] 能不看旧代码独立写出 `uart.c` 的 raw 配置
 - [ ] 能说出 `--vis` 每个标注元素的含义，并独立走一遍"跑 → 合成视频 → 取回 PC"
+- [ ] 能说清 `demo` 的链路：`~/bin/demo`（符号链接）→ `tools/board.sh` → `tools/run-demo.sh` → 主程序
 
 ## 5. 相关文档导航
 

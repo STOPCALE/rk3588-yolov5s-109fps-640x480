@@ -69,9 +69,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 17)
+    if (argc < 3 || argc > 21)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv]\n", argv[0]);
         return -1;
     }
 
@@ -85,6 +85,9 @@ int main(int argc, char **argv)
     const char *pred_log_path = nullptr; //--pred-log <文件>:每帧检测轨迹 CSV(B9 评估用)
     const char *vis_path = nullptr;      //--vis <文件>:写带标注的结果视频(B9 可视化)
     bool nogate = false;                 //--nogate:关闭目标锁定(对比用)
+    int  cam_w = 640, cam_h = 480;       //--cam-size WxH:摄像头分辨率(默认 VGA)
+    int  cam_fps = 120;                  //--cam-fps N:摄像头帧率(默认 120)
+    bool cam_yuyv = false;               //--cam-yuyv:用 YUYV 原始格式(默认 MJPG,高帧率必需)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
@@ -95,6 +98,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--pred-log")== 0 && i + 1 <argc) pred_log_path = argv[++i];
         else if (strcmp(argv[i], "--vis")    == 0 && i + 1 <argc) vis_path = argv[++i];
         else if (strcmp(argv[i], "--nogate") == 0)               nogate = true;
+        else if (strcmp(argv[i], "--cam-size")== 0 && i + 1 <argc) { if (sscanf(argv[++i], "%dx%d", &cam_w, &cam_h) != 2) { cam_w = 640; cam_h = 480; } }
+        else if (strcmp(argv[i], "--cam-fps")== 0 && i + 1 <argc) cam_fps = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--cam-yuyv")== 0)                cam_yuyv = true;
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
@@ -121,15 +127,31 @@ int main(int argc, char **argv)
     const double freq = cv::getTickFrequency();     //每秒多少tick
     StageStat st_read, st_infer;
 
-    //判断第二个是图片还是视频
-    cv::Mat prode = cv::imread(argv[2]);
+    //判断第二个是图片/视频/摄像头(/dev/videoN)
+    const bool is_cam = (strncmp(argv[2], "/dev/video", 10) == 0);   //B11:摄像头设备走 V4L2
+    cv::Mat prode = is_cam ? cv::Mat() : cv::imread(argv[2]);
 
     cv::VideoCapture cap;   //播放器：有当前位置，能一帧一帧走
     bool is_video = false;
 
     if (prode.empty())
     {
-        if (fast)
+        if (is_cam)
+        {
+            //B11 摄像头接入：V4L2 + 只留 1 帧驱动缓冲(防陈旧帧积压,实时性关键)
+            if (!cap.open(argv[2], cv::CAP_V4L2)) { printf("摄像头打不开: %s\n", argv[2]); return -1; }
+            cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+            if (!cam_yuyv) cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M','J','P','G'));
+            cap.set(cv::CAP_PROP_FRAME_WIDTH,  cam_w);
+            cap.set(cv::CAP_PROP_FRAME_HEIGHT, cam_h);
+            cap.set(cv::CAP_PROP_FPS,          cam_fps);
+            const int  fc = (int)cap.get(cv::CAP_PROP_FOURCC);
+            printf("[cam] %s 实际: %dx%d %.1f fps '%c%c%c%c' (buffer=1)\n",
+                   argv[2], (int)cap.get(cv::CAP_PROP_FRAME_WIDTH), (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
+                   cap.get(cv::CAP_PROP_FPS),
+                   (char)(fc & 0xFF), (char)((fc >> 8) & 0xFF), (char)((fc >> 16) & 0xFF), (char)((fc >> 24) & 0xFF));
+        }
+        else if (fast)
         {
             //自己拼完整pipeline
             char pipeline[1024];

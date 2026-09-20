@@ -200,7 +200,7 @@ int main(int argc, char **argv)
             //收：取最早结果
 
             FrameResult r;
-            if (pool.get(r) == 0)
+            if (pool.get_try(r) == 0)
             {
                 const int64_t t0 = ts.front(); ts.pop_front();
                 st_lat.add((cv::getTickCount() - t0) * 1000.0 / freq);

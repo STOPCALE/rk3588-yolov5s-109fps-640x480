@@ -23,8 +23,10 @@
 #      锁频只保证"频率不变"，但调度器**还是可能把线程从小核挪到大核**。
 #      实测：小核上 preprocess 慢 1.86 倍（0.094 -> 0.175 ms）。
 #      所以跑性能测试时**必须绑大核**：
-#          taskset -c 4-7 ./my_rknn_yolov5_demo ...
-#      或者直接用:  bash ~/myproj/tools/run-demo.sh ...
+#      taskset -c 4-7 ./my_rknn_yolov5_demo ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200
+#      或者直接用:  bash ~/myproj/tools/run-demo.sh ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200
+#      （注意：写文档时不要用 <参数...> 这种占位符 —— 有人会直接复制进去跑，然后撞上
+#        bash 的输入重定向 < ，报 "未预期的符号 newline 附近有语法错误"）
 # =============================================================================
 
 set -u
@@ -101,9 +103,10 @@ echo
 if [ "$ok" = "1" ]; then
     echo "✅ 全部已定频，可以测性能了"
     echo
-    echo "   跑程序记得绑大核（不然可能被调到小核，慢 2 倍）："
-    echo "     taskset -c 4-7 ./my_rknn_yolov5_demo <参数...>"
-    echo "   或者直接用：bash ~/myproj/tools/run-demo.sh <参数...>"
+    echo "   跑程序记得绑大核（不然可能被调到小核，慢 2 倍）。例如："
+    echo "     bash ~/myproj/tools/run-demo.sh ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200"
+    echo "   它内部做的就是："
+    echo "     taskset -c 4-7 ./my_rknn_yolov5_demo ./model/RK3588/best.rknn ~/testimg/vb640.jpg 200"
 else
     echo "❌ 还有设备没定频！"
     echo "   PC 上一行搞定："

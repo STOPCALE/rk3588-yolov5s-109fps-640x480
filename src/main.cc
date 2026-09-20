@@ -69,9 +69,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 11)
+    if (argc < 3 || argc > 13)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file]\n", argv[0]);
         return -1;
     }
 
@@ -82,6 +82,7 @@ int main(int argc, char **argv)
     bool pipe       = false;    //三线程流水线模式
     int disp_ms    = 500;      //显示间隔
     const char *serial_dev = nullptr;   //--serial <设备>:给了才发串口(B9)
+    const char *pred_log_path = nullptr; //--pred-log <文件>:每帧检测轨迹 CSV(B9 评估用)
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
@@ -89,11 +90,13 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--pipe")  == 0)    pipe  = true;
         else if (strcmp(argv[i], "--disp")  == 0 && i + 1 <argc) disp_ms = atoi(argv[++i]);
         else if (strcmp(argv[i], "--serial")== 0 && i + 1 <argc) serial_dev = argv[++i];
+        else if (strcmp(argv[i], "--pred-log")== 0 && i + 1 <argc) pred_log_path = argv[++i];
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s\n",
-           max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms, serial_dev ? serial_dev : "(off)");     //回显
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s\n",
+           max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms,
+           serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)");     //回显
 
 
 
@@ -166,13 +169,20 @@ int main(int argc, char **argv)
         pool.setMaxPending(3);  //Little定律
         pool.setVerbose(!quiet);
 
-        //B9:串口 + 轨迹预测器(只有给了 --serial 才启用)
+        //B9:串口 + 轨迹预测器(给了 --serial 或 --pred-log 就启用)
         int uart_fd = -1;
         if (serial_dev)
         {
             uart_fd = uart_open(serial_dev, 115200);
             if (uart_fd < 0)    printf("[warn] 串口打不开:%s(继续运行,但不发包)\n", serial_dev);
             else                printf("[serial] %s @115200 已打开\n", serial_dev);
+        }
+        FILE *pred_log = nullptr;           //--pred-log:检测轨迹 CSV(离线评估用)
+        if (pred_log_path)
+        {
+            pred_log = fopen(pred_log_path, "w");
+            if (pred_log) { fprintf(pred_log, "t_ms,det_ok,cx,cy,r\n"); printf("[pred-log] %s\n", pred_log_path); }
+            else            printf("[warn] 预测日志打不开:%s\n", pred_log_path);
         }
         TrajectoryPredictor predictor;      //轨迹预测器(真实时间戳版)
         StageStat st_send;                  //串口发送耗时统计
@@ -259,7 +269,7 @@ int main(int argc, char **argv)
                 ++results;
 
                 //B9:预测 -> 组包 -> 发串口(时间戳 = 本帧采集时刻)
-                if (serial_dev)
+                if (serial_dev || pred_log)
                 {
                     ++pkt_try;
                     const double t_ms = t0 * 1000.0 / freq;
@@ -294,6 +304,14 @@ int main(int argc, char **argv)
                         st_send.add((cv::getTickCount() - ts0) * 1000.0 / freq);
                         if (wn == (ssize_t)sizeof pkt) ++pkt_sent;
                         else                           ++pkt_fail;
+                    }
+
+                    //每帧检测轨迹写 CSV(供 predictor_eval 离线评估)
+                    if (pred_log)
+                    {
+                        fprintf(pred_log, "%.3f,%d,%.2f,%.2f,%.2f\n",
+                                t_ms, (int)po.detect_ok, po.cx, po.cy, po.r);
+                        fflush(pred_log);
                     }
 
                     //前 5 包打印 hex,方便肉眼对照
@@ -352,6 +370,7 @@ int main(int argc, char **argv)
                    (unsigned)pkt_sent, (unsigned)pkt_fail, st_send.avg(), st_send.mx);
         }
         if (uart_fd >= 0) uart_close(uart_fd);
+        if (pred_log)     fclose(pred_log);
         return 0;
     }
 

@@ -583,7 +583,8 @@ int main(int argc, char **argv)
                results * 1000.0 / wall, captured * 1000.0 / wall);
         printf("  端到端延迟 ms: 平均 %.2f  最小 %.2f  最大 %.2f\n", st_lat.avg(), st_lat.mn, st_lat.mx);
         printf("  拒收 %u 帧   残余在途 %u\n", (unsigned)pool.dropped(), (unsigned)pool.pending());
-        printf("  显示存图 %u 张(间隔 %d ms)\n", (unsigned)shown, disp_ms);
+        if (show) printf("  实时窗口刷新 %u 次（--show）\n", (unsigned)shown);
+        else      printf("  显示存图 %u 张(间隔 %d ms)\n", (unsigned)shown, disp_ms);
         if (serial_dev)
         {
             printf("  串口发包 %u 个(失败 %u) 发送耗时 ms: 平均 %.3f 最大 %.3f\n",

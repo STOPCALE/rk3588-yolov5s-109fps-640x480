@@ -71,7 +71,7 @@ int main(int argc, char **argv)
 {
     if (argc < 3 || argc > 17)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis file] [--nogate]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate]\n", argv[0]);
         return -1;
     }
 
@@ -194,9 +194,7 @@ int main(int argc, char **argv)
         StageStat st_send;                  //串口发送耗时统计
         size_t pkt_try = 0, pkt_sent = 0, pkt_fail = 0;
 
-        //B9可视化(--vis):结果视频 + 绘制状态
-        cv::VideoWriter vwriter;
-        bool vis_tried = false;
+        //B9可视化(--vis):带标注帧序列(由显示线程落盘,不拖慢主管线)
         std::deque<cv::Point> trail;        //尾迹(最近40个选中点)
         cv::Point start_pt(0, 0);           //本次跟踪起点
         bool has_start = false;
@@ -237,23 +235,36 @@ int main(int argc, char **argv)
                 uint64_t d_last = 0;
                 cv::Mat  dimg;
                 int64_t  dt     = 0;
+                size_t   vsave  = 0;
                 while (disp_run)
                 {
                     if (dslot.read_newer(d_last, dimg, dt))
                     {
-                        //可被打断的睡眠
-                        for (int left = disp_ms; left > 0 && disp_run; left -= 50)
+                        if (vis_path)
                         {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(left < 50 ? left : 50));
+                            //--vis:全速落盘带标注帧(在显示线程做,主管线不受编码拖累)
+                            char fn[600];
+                            snprintf(fn, sizeof fn, "%s/f_%06u.jpg", vis_path, (unsigned)vsave);
+                            cv::imwrite(fn, dimg);
+                            ++vsave;
                         }
-                        cv::imwrite("/tmp/pipe_display.jpg", dimg); //模拟慢显示
-                        ++shown;
+                        else
+                        {
+                            //可被打断的睡眠(模拟慢显示)
+                            for (int left = disp_ms; left > 0 && disp_run; left -= 50)
+                            {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(left < 50 ? left : 50));
+                            }
+                            cv::imwrite("/tmp/pipe_display.jpg", dimg); //模拟慢显示
+                            ++shown;
+                        }
                     }
                     else
                     {
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     }
                 }
+                if (vis_path) printf("[vis] 已落盘 %u 帧 -> %s\n", (unsigned)vsave, vis_path);
             }
         );
 
@@ -413,27 +424,6 @@ int main(int argc, char **argv)
                     cv::putText(r.image, vis_txt, cv::Point(24, 64), cv::FONT_HERSHEY_SIMPLEX, 1.3, cv::Scalar(0, 255, 0), 3);
                 }
 
-                // --vis:把带标注的帧写进结果视频
-                if (vis_path)
-                {
-                    if (!vis_tried)
-                    {
-                        vis_tried = true;
-                        const cv::Size sz = r.image.size();
-                        vwriter.open(vis_path, cv::VideoWriter::fourcc('m','p','4','v'), 30.0, sz, true);
-                        if (vwriter.isOpened()) printf("[vis] 录制: %s\n", vis_path);
-                        else
-                        {
-                            char alt[512];
-                            snprintf(alt, sizeof alt, "%s.avi", vis_path);
-                            vwriter.open(alt, cv::VideoWriter::fourcc('M','J','P','G'), 30.0, sz, true);
-                            if (vwriter.isOpened()) printf("[vis] 录制(回退): %s\n", alt);
-                            else                    printf("[warn] 视频打不开: %s\n", vis_path);
-                        }
-                    }
-                    if (vwriter.isOpened()) vwriter.write(r.image);
-                }
-
                 //把结果帧交给显示线程
                 dslot.write(std::move(r.image), 0);
 
@@ -471,8 +461,7 @@ int main(int argc, char **argv)
             printf("  串口发包 %u 个(失败 %u) 发送耗时 ms: 平均 %.3f 最大 %.3f\n",
                    (unsigned)pkt_sent, (unsigned)pkt_fail, st_send.avg(), st_send.mx);
         }
-        if (vwriter.isOpened()) vwriter.release();
-        if (vis_path) printf("  可视化视频: %s\n", vis_path);
+        if (vis_path) printf("  可视化帧目录: %s（用 ffmpeg 合成视频）\n", vis_path);
         if (uart_fd >= 0) uart_close(uart_fd);
         if (pred_log)     fclose(pred_log);
         return 0;

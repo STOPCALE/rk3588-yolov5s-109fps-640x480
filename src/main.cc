@@ -65,9 +65,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 7)
+    if (argc < 3 || argc > 9)
     {
-        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms]\n", argv[0]);
         return -1;
     }
 
@@ -76,15 +76,18 @@ int main(int argc, char **argv)
     bool quiet      = false;
     bool fast       = false;    //全速喂帧
     bool pipe       = false;    //三线程流水线模式
+    int disp_ms    = 500;      //显示间隔
     for (int i =3; i < argc; i++)
     {
         if      (strcmp(argv[i], "--quiet") == 0)    quiet = true;
         else if (strcmp(argv[i], "--fast")  == 0)    fast  = true;
         else if (strcmp(argv[i], "--pipe")  == 0)    pipe  = true;
+        else if (strcmp(argv[i], "--disp")  == 0 && i + 1 <argc) disp_ms = atoi(argv[++i]);
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d\n", max_frames, (int)quiet, (int)fast, (int)pipe);     //回显
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d\n", max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms);     //回显
+
 
 
     rkYolov5s model(argv[1]);
@@ -181,6 +184,36 @@ int main(int argc, char **argv)
         size_t   results  = 0;
         const int64_t t_start = cv::getTickCount();
 
+        //显示槽 + 显示线程
+        FrameSlot dslot;
+        std::atomic<bool> disp_run{true};
+        size_t shown = 0;
+
+        std::thread dispThread([&]()
+            {
+                uint64_t d_last = 0;
+                cv::Mat  dimg;
+                int64_t  dt     = 0;
+                while (disp_run)
+                {
+                    if (dslot.read_newer(d_last, dimg, dt))
+                    {
+                        //可被打断的睡眠
+                        for (int left = disp_ms; left > 0 && disp_run; left -= 50)
+                        {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(left < 50 ? left : 50));
+                        }
+                        cv::imwrite("/tmp/pipe_display.jpg", dimg); //模拟慢显示
+                        ++shown;
+                    }
+                    else
+                    {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
+                }
+            }
+        );
+
         while (running)
         {
             bool did = false;
@@ -214,6 +247,9 @@ int main(int argc, char **argv)
                     cv::circle(r.image, c, (int)(b.radius + 0.5f), cv::Scalar(0, 255, 0), 3);
                 }
 
+                //把结果帧交给显示线程
+                dslot.write(std::move(r.image), 0);
+
                 did = true;
                 if ((int)results >= max_frames) break;
             }
@@ -228,8 +264,10 @@ int main(int argc, char **argv)
             }
         }
 
-        running = false;
+        running     = false;
+        disp_run    = false;
         capThread.join();
+        dispThread.join();
 
         //汇总
         const double wall = (cv::getTickCount() - t_start) * 1000.0 / freq;
@@ -240,6 +278,7 @@ int main(int argc, char **argv)
                results * 1000.0 / wall, captured * 1000.0 / wall);
         printf("  端到端延迟 ms: 平均 %.2f  最小 %.2f  最大 %.2f\n", st_lat.avg(), st_lat.mn, st_lat.mx);
         printf("  拒收 %u 帧   残余在途 %u\n", (unsigned)pool.dropped(), (unsigned)pool.pending());
+        printf("  显示存图 %u 张（间隔 %d ms）\n", (unsigned)shown, disp_ms);
         return 0;
     }
 

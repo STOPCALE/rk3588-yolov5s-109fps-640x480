@@ -11,8 +11,8 @@
 #      demo cam [帧数] [更多参数...]     # 相机实时跑（默认 900 帧；**0=无限模式**，Ctrl+C 停）
 #      demo vis [帧数]                   # 相机录一段"带标注视频"，自动合成 mp4（默认 600 帧）
 #      demo video <视频路径> [帧数]      # 跑视频文件（默认 4000 帧）
-#      demo pic <图片路径> [循环次数]    # 跑单张图片（默认 200 次）
-#      demo bg                           # **后台常驻**跑（相机无限模式；日志 /tmp/demo_run.log）
+#      demo pic <图片路径> [循环次数]    # 跑单张图片（默认 200 次）#      demo rec   [秒数] [更多参数...]     # **录像**（默认一直录，Ctrl+C 停；控制台提示输出位置）
+#      demo rec   60 --jpg                  # 录 60 秒的**原始 JPEG 帧序列**（建数据集用）#      demo bg                           # **后台常驻**跑（相机无限模式；日志 /tmp/demo_run.log）
 #      demo stop                         # 停止后台运行（兜底 pkill）
 #      demo test                         # 一键跑全部自测（现场编译 4 个工具）
 #      demo lock                         # 锁频（要 sudo；测性能前跑，重启后失效）
@@ -70,6 +70,13 @@ case "$cmd" in
     file="${1:?用法: demo pic <图片路径> [循环次数]}"; [ $# -gt 0 ] && shift
     n="${1:-200}"; [ $# -gt 0 ] && shift
     exec bash "$RUNSH" "$MODEL" "$file" "$n" "$@"
+    ;;
+  rec)
+    # 录像（不跑模型）：默认 640x480@120 MJPG；秒数=0/缺省 → 一直录（Ctrl+C 停）
+    sec="${1:-0}"; [ $# -gt 0 ] && shift
+    BIN="$ROOT/install/my_rknn_yolov5_demo_$(uname -m)/cam_record"
+    if [ ! -x "$BIN" ]; then echo "!! 找不到 $BIN（先在 PC 上跑一次 sync.ps1）"; exit 1; fi
+    exec taskset -c 4-7 "$BIN" /dev/video0 --sec "$sec" "$@"
     ;;
   test)
     cd "$ROOT"
@@ -150,6 +157,7 @@ case "$cmd" in
 用法: demo <子命令> [参数...]
   cam   [帧数] [更多参数]      相机实时跑（默认 900；0=无限模式）
   vis   [帧数]                 相机录标注视频→自动合成 mp4（默认 600）
+  rec   [秒数] [更多参数]      录像（拍素材/建数据集；0或省略=一直录，Ctrl+C 停）
   video <视频文件> [帧数]      跑视频文件（默认 4000）
   pic   <图片> [循环次数]      跑单张图片（默认 200 次）
   bg                          后台常驻跑（相机无限模式；日志 /tmp/demo_run.log）

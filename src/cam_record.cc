@@ -11,7 +11,7 @@
 //    · 录制时屏幕实时预览（红点 REC + 计时 + 帧数；有桌面默认开，--no-show 关）
 //    · Ctrl+C 优雅停止：管道关闭 → ffmpeg 正常收尾（mp4 一定能播放）
 //    · 录完自动写 sidecar：<文件>.txt / <目录>/info.txt（帧数、时长、真实 fps——标注时有用）
-//    · 录完打印"拉回 PC"的 scp 命令
+//    · 录完打印"拉回 PC"的 scp 命令（目标目录默认 E:\desk\logs\video，改 PC_PULL_DIR 常量即可）
 //
 //  用法（板子上）：
 //      cam_record /dev/video0 --sec 60                 # 录 60 秒 → ~/videos/cam_<时间>.mp4（带预览）
@@ -44,6 +44,9 @@
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_stop(int) { g_stop = 1; }
+
+// 拉回 PC 时打印的默认目标目录（2026-09-21 用户指定——改这里一处即可）
+static const char *PC_PULL_DIR = "E:\\desk\\logs\\video";
 
 static bool is_jpeg(const cv::Mat &m)
 {
@@ -266,14 +269,14 @@ int main(int argc, char **argv)
     if (jpg)
     {
         printf("[rec] 目录: %s\n", jdir.c_str());
-        printf("[rec] 拉回 PC：在电脑上执行  scp -r board:%s  目标目录\n", jdir.c_str());
+        printf("[rec] 拉回 PC：在电脑上执行  scp -r board:%s  %s\n", jdir.c_str(), PC_PULL_DIR);
     }
     else
     {
         struct stat st;
         if (stat(fpath.c_str(), &st) == 0) fsz = (long long)st.st_size;
         printf("[rec] 文件: %s  (%.1f MB)\n", fpath.c_str(), fsz / 1048576.0);
-        printf("[rec] 拉回 PC：在电脑上执行  scp board:%s  目标目录\n", fpath.c_str());
+        printf("[rec] 拉回 PC：在电脑上执行  scp board:%s  %s\n", fpath.c_str(), PC_PULL_DIR);
     }
     if (sink_err > 0) printf("[rec] ⚠️ 写盘失败 %d 次（磁盘满/管道断？）\n", sink_err);
 

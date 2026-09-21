@@ -26,6 +26,9 @@
 #include <ctime>
 #include <string>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <unistd.h>     //sysconf(_SC_NPROCESSORS_ONLN)
+#endif
 #include <opencv2/opencv.hpp>
 
 #ifdef _WIN32
@@ -77,9 +80,11 @@ int main(int argc, char **argv)
            dev, (int)cap.get(cv::CAP_PROP_FRAME_WIDTH), (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT),
            cap.get(cv::CAP_PROP_FPS));
 
-    // ---- 预跑 0.6 秒：估真实帧率（标称 120，实测约 109.5，差 9% 会影响播放速度） ----
+    // ---- 预跑：先丢 10 帧过渡帧（刚开流时不稳），再测 66 帧估真实帧率 ----
+    //      （标称 120，实测约 109.5，差 9% 会影响播放速度，所以要实测）
     cv::Mat frame;
     const double tick = cv::getTickFrequency();
+    for (int k = 0; k < 10 && !g_stop; k++) cap.read(frame);
     const int64_t t_pre = cv::getTickCount();
     int pre_n = 0;
     while (pre_n < 66 && !g_stop) { if (cap.read(frame)) ++pre_n; }
@@ -124,10 +129,16 @@ int main(int argc, char **argv)
         char cmd0[800]; snprintf(cmd0, sizeof cmd0, "mkdir -p \"%s\"", d.c_str()); if (system(cmd0) != 0) {}
 
         char cmd[900];
+#ifdef _WIN32
+        const long ncpu = 8;
+#else
+        long ncpu = sysconf(_SC_NPROCESSORS_ONLN); if (ncpu < 1) ncpu = 8;
+#endif
+        // ffmpeg 放在“全核”上（不跟采集线程抢大核——实测抢了会让采集从 109 掉到 60）
         snprintf(cmd, sizeof cmd,
-                 "ffmpeg -y -loglevel error -f rawvideo -pix_fmt bgr24 -s %dx%d -framerate %.3f -i pipe:0 "
+                 "taskset -c 0-%ld ffmpeg -y -loglevel error -f rawvideo -pix_fmt bgr24 -s %dx%d -framerate %.3f -i pipe:0 "
                  "-c:v libx264 -preset ultrafast -crf %d -pix_fmt yuv420p \"%s\"",
-                 w, h, est_fps, crf, fpath.c_str());
+                 ncpu - 1, w, h, est_fps, crf, fpath.c_str());
         pipe = popen(cmd, "w");
         if (!pipe) { printf("无法启动 ffmpeg（装了没？）\n"); return -1; }
         printf("[rec] 输出: %s（%.1f%% 真实速率；Ctrl+C 停止）\n", fpath.c_str(), est_fps / fps * 100.0);

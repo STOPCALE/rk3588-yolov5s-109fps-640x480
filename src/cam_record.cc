@@ -8,15 +8,18 @@
 //        mp4 模式（默认)：解码 → 管道给 ffmpeg（x264 ultrafast crf18）→ mp4，通用、体积小
 //        --jpg 模式      ：逐帧落盘；若驱动支持 MJPEG 直通（CONVERT_RGB=0），
 //                          写出的是**相机原始 JPEG 字节**（零解码、零损失 —— 建数据集首选）
+//    · 录制时屏幕实时预览（红点 REC + 计时 + 帧数；有桌面默认开，--no-show 关）
 //    · Ctrl+C 优雅停止：管道关闭 → ffmpeg 正常收尾（mp4 一定能播放）
 //    · 录完自动写 sidecar：<文件>.txt / <目录>/info.txt（帧数、时长、真实 fps——标注时有用）
+//    · 录完打印"拉回 PC"的 scp 命令
 //
 //  用法（板子上）：
-//      cam_record /dev/video0 --sec 60                 # 录 60 秒 → ~/videos/cam_<时间>.mp4
+//      cam_record /dev/video0 --sec 60                 # 录 60 秒 → ~/videos/cam_<时间>.mp4（带预览）
 //      cam_record /dev/video0                          # 一直录，Ctrl+C 停
 //      cam_record /dev/video0 --jpg --sec 30           # 原始 JPEG 帧序列 → ~/videos/cam_<时间>/
 //      cam_record /dev/video0 --out /tmp/a.mp4 --sec 10
 //      cam_record /dev/video0 --fps 60 --size 1280x720 # 换档位（默认 640x480@120）
+//      cam_record /dev/video0 --no-show                # 不要预览窗口（纯后台/ssh 场景）
 // =============================================================================
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +28,9 @@
 #include <csignal>
 #include <ctime>
 #include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <unistd.h>     //sysconf(_SC_NPROCESSORS_ONLN)
@@ -55,6 +61,7 @@ int main(int argc, char **argv)
     int  w = 640, h = 480;
     int  crf = 18;
     bool jpg = false;
+    bool show = false, no_show = false;  // 预览窗口（默认：有 DISPLAY 就开）
 
     for (int i = 1; i < argc; i++)
     {
@@ -65,6 +72,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &w, &h);
         else if (!strcmp(argv[i], "--crf")  && i + 1 < argc) crf = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--jpg"))                  jpg = true;
+        else if (!strcmp(argv[i], "--show"))                 show = true;
+        else if (!strcmp(argv[i], "--no-show"))              no_show = true;
         else { printf("未知参数: %s（用法见文件头注释）\n", argv[i]); return -1; }
     }
 
@@ -91,6 +100,11 @@ int main(int argc, char **argv)
     const double est_fps = pre_n / ((cv::getTickCount() - t_pre) / tick);
     printf("[rec] 预跑：%d 帧/%.2fs → 真实帧率 ≈ %.2f fps\n", pre_n,
            (cv::getTickCount() - t_pre) / tick, est_fps);
+
+    // ---- 预览窗口开关：有图形界面（DISPLAY）默认开；--no-show 强制关 ----
+    if (no_show) show = false;
+    else if (!show && getenv("DISPLAY")) show = true;
+    if (show && !getenv("DISPLAY")) { printf("[rec] 预览需要图形界面（DISPLAY 为空）→ 本次不开窗口\n"); show = false; }
 
     // ---- 输出准备 ----
     const char *home = getenv("HOME"); if (!home) home = "/tmp";
@@ -147,6 +161,40 @@ int main(int argc, char **argv)
     signal(SIGINT,  on_stop);
     signal(SIGTERM, on_stop);
 
+    // ---- 预览线程（--show）：采集循环只"投递最近一帧"（每 3 帧投一次），
+    //      显示在独立线程做——不拖慢采集；红点/计时让"正在录"一目了然 ----
+    struct PrevSlot { std::mutex mtx; cv::Mat img; uint64_t seq = 0; double el = 0; size_t frames = 0; } pslot;
+    std::atomic<bool> prun{true};
+    std::thread pth;
+    if (show)
+    {
+        pth = std::thread([&pslot, &prun]()
+        {
+            const char *win = "cam_record 录制中 (Ctrl+C 停止)";
+            uint64_t got = 0;
+            while (prun)
+            {
+                cv::Mat img; double el = 0; size_t n = 0;
+                {
+                    std::lock_guard<std::mutex> lk(pslot.mtx);
+                    if (pslot.seq != got) { got = pslot.seq; img = std::move(pslot.img); el = pslot.el; n = pslot.frames; }
+                }
+                if (!img.empty())
+                {
+                    cv::circle(img, cv::Point(28, 28), 9, cv::Scalar(0, 0, 255), -1);   // 红点=正在录
+                    char t[160];
+                    snprintf(t, sizeof t, "REC %.1fs  %zu 帧", el, n);
+                    cv::putText(img, t, cv::Point(46, 36), cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 0, 255), 2);
+                    try { cv::imshow(win, img); cv::waitKey(1); }
+                    catch (const cv::Exception &e) { printf("[rec] 预览失败（%s）→ 关闭预览，继续录\n", e.what()); break; }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(30));  // ~30fps 刷新
+                }
+                else std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        });
+        printf("[rec] 预览窗口已开（--no-show 可关）\n");
+    }
+
     // ---- 主循环 ----
     const int64_t t0 = cv::getTickCount();
     int64_t t_print = t0;
@@ -185,6 +233,15 @@ int main(int argc, char **argv)
             if (fwrite(frame.data, 1, bytes, pipe) != bytes) { ++sink_err; break; }
         }
 
+        if (show && (frames % 3) == 0)          // 每 3 帧投递一帧给预览（≈33fps）
+        {
+            std::lock_guard<std::mutex> lk(pslot.mtx);
+            pslot.img = frame.clone();
+            pslot.el = (cv::getTickCount() - t0) / tick;
+            pslot.frames = frames;
+            ++pslot.seq;
+        }
+
         const int64_t tn = cv::getTickCount();
         if (tn - t_print >= (int64_t)tick)
         {
@@ -199,6 +256,9 @@ int main(int argc, char **argv)
 
     // ---- 收尾 ----
     const double el = (cv::getTickCount() - t0) / tick;
+    prun = false;
+    if (pth.joinable()) pth.join();
+    if (show) { try { cv::destroyAllWindows(); } catch (...) {} }
     if (pipe) { pclose(pipe); pipe = nullptr; }    // 关管道 → ffmpeg 收尾（mp4 可播放）
 
     printf("\n[rec] 完成：%u 帧 / %.1f s → 实际 %.2f fps\n", (unsigned)frames, el, frames / el);
@@ -206,12 +266,14 @@ int main(int argc, char **argv)
     if (jpg)
     {
         printf("[rec] 目录: %s\n", jdir.c_str());
+        printf("[rec] 拉回 PC：在电脑上执行  scp -r board:%s  目标目录\n", jdir.c_str());
     }
     else
     {
         struct stat st;
         if (stat(fpath.c_str(), &st) == 0) fsz = (long long)st.st_size;
         printf("[rec] 文件: %s  (%.1f MB)\n", fpath.c_str(), fsz / 1048576.0);
+        printf("[rec] 拉回 PC：在电脑上执行  scp board:%s  目标目录\n", fpath.c_str());
     }
     if (sink_err > 0) printf("[rec] ⚠️ 写盘失败 %d 次（磁盘满/管道断？）\n", sink_err);
 

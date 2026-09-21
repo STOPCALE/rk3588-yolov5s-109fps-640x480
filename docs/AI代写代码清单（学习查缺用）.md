@@ -62,7 +62,7 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | `src/predictor_selftest.cc` | 预测器 T1~T6 | 动预测器后 | 合成数据 + 手算对照；T6 专测门限/锚点 |
 | `src/predictor_eval.cc` | 预测质量评估（误差 vs 零阶保持基线） | 拿到实拍 CSV 后 | 基线对照思想；只在"两帧都有检测"处比对 |
 | `src/cam_probe.cc` | 相机体检 | 换相机 / 换档位前 | 缓冲矩阵 + `v4l2-ctl` 独立实现交叉验证 |
-| `src/cam_record.cc` | 摄像头录像（建数据集） | 拍训练素材 | 预跑估真实帧率；MJPEG 直通（`CONVERT_RGB=0`）零损失存原图；ffmpeg 放全核不抢采集大核 |
+| `src/cam_record.cc` | 摄像头录像（建数据集） | 拍训练素材 | 预跑估真实帧率；MJPEG 直通（`CONVERT_RGB=0`）零损失存原图；ffmpeg 放全核不抢采集大核；录制时屏幕预览（独立线程，不拖采集） |
 | `tools/board.sh`（板载入口 `demo`） | 板子上敲 `demo cam/vis/test/lock/status/off` 的统一入口（已配 `~/bin/demo`） | 板子上日常使用（不在 PC 旁边时） | 包装 `run-demo.sh`（找安装目录+绑大核+锁频警告）；`readlink -f "$0"` 支持符号链接启动 |
 
 ## 4. 掌握标准（自查表）

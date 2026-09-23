@@ -226,6 +226,27 @@ int main(int argc, char **argv)
         }
         printf("[Z] 收益: 标准 %.3f ms vs 零拷贝 %.3f ms → 省 %.3f ms/帧\n", msN, msZ, msN - msZ);
 
+        // ---- Z1b/Z1c：原地重跑 & 再同步重跑（排查「首次绑定异常」是否持续）----
+        {
+            rknn_run(ctx, nullptr);
+            std::vector<rknn_output> ob(io_num.n_output);
+            memset(ob.data(), 0, sizeof(rknn_output) * io_num.n_output);
+            for (uint32_t k = 0; k < io_num.n_output; k++) { ob[k].index = k; ob[k].want_float = 0; ob[k].is_prealloc = 0; }
+            rknn_outputs_get(ctx, io_num.n_output, ob.data(), nullptr);
+            uint32_t hb = fnv1a((uint8_t *)ob[0].buf, ob[0].size);
+            rknn_outputs_release(ctx, io_num.n_output, ob.data());
+            printf("[Z1b] 原地重跑 hash=%08x → %s\n", hb, (hb == hashN) ? "与标准一致" : "仍不一致（首次绑定差异持续）");
+
+            buf_sync_end_write(zfd);   // 显式再同步一次
+            rknn_run(ctx, nullptr);
+            memset(ob.data(), 0, sizeof(rknn_output) * io_num.n_output);
+            for (uint32_t k = 0; k < io_num.n_output; k++) { ob[k].index = k; ob[k].want_float = 0; ob[k].is_prealloc = 0; }
+            rknn_outputs_get(ctx, io_num.n_output, ob.data(), nullptr);
+            uint32_t hc = fnv1a((uint8_t *)ob[0].buf, ob[0].size);
+            rknn_outputs_release(ctx, io_num.n_output, ob.data());
+            printf("[Z1c] 同步后再跑 hash=%08x → %s\n", hc, (hc == hashN) ? "与标准一致（说明是同步时序！）" : "仍不一致");
+        }
+
         // ---- 变体 Z2/Z3：换缓存策略再验正确性（排查 dma-buf 缓存一致性）----
         {
             const char *heaps[2] = { "/dev/dma_heap/system-uncached", "/dev/dma_heap/system" };

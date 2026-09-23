@@ -52,9 +52,9 @@ int main(int argc, char **argv)
            in_attr.dims[3], in_attr.fmt, in_attr.type);
 
     // ---- 推导输入尺寸 ----
-    int channel = in_attr.dims[3];
-    int height  = in_attr.dims[1];
-    int width   = in_attr.dims[2];
+    int channel = in_attr.dims[1];
+    int height  = in_attr.dims[2];
+    int width   = in_attr.dims[3];
     printf("model input: channel=%d, width=%d, height=%d\n", channel, width, height);
 
     if (channel != 3)

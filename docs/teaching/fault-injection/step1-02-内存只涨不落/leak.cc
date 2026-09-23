@@ -98,9 +98,9 @@ int main(int argc, char **argv)
     ret = rknn_inputs_set(ctx, 1, inputs);
     if (ret < 0) { printf("rknn_inputs_set error=%d\n", ret); return 1; }
 
-    // 长跑 150 帧
+    // 长跑 300 帧
     std::vector<rknn_output> outs(io_num.n_output);
-    for (int frame = 1; frame <= 150; frame++)
+    for (int frame = 1; frame <= 300; frame++)
     {
         ret = rknn_run(ctx, nullptr);
         if (ret < 0) { printf("rknn_run error=%d\n", ret); return 1; }

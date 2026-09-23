@@ -245,6 +245,17 @@ int main(int argc, char **argv)
             uint32_t hc = fnv1a((uint8_t *)ob[0].buf, ob[0].size);
             rknn_outputs_release(ctx, io_num.n_output, ob.data());
             printf("[Z1c] 同步后再跑 hash=%08x → %s\n", hc, (hc == hashN) ? "与标准一致（说明是同步时序！）" : "仍不一致");
+
+            // Z1d：对同一个 mem 重复调用 set_io_mem（验证「进程内第一次 set_io_mem 不生效」假说）
+            ret = rknn_set_io_mem(ctx, zmem, &zattr);
+            rknn_run(ctx, nullptr);
+            memset(ob.data(), 0, sizeof(rknn_output) * io_num.n_output);
+            for (uint32_t k = 0; k < io_num.n_output; k++) { ob[k].index = k; ob[k].want_float = 0; ob[k].is_prealloc = 0; }
+            rknn_outputs_get(ctx, io_num.n_output, ob.data(), nullptr);
+            uint32_t hd = fnv1a((uint8_t *)ob[0].buf, ob[0].size);
+            rknn_outputs_release(ctx, io_num.n_output, ob.data());
+            printf("[Z1d] 重复 set_io_mem 后 hash=%08x → %s\n", hd,
+                   (hd == hashN) ? "与标准一致（假说成立：首次调用未生效）" : "仍不一致");
         }
 
         // ---- 变体 Z2/Z3：换缓存策略再验正确性（排查 dma-buf 缓存一致性）----

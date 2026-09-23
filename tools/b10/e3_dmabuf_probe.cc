@@ -36,8 +36,9 @@
 #define DMA_HEAP_IOC_MAGIC_LOCAL 'H'
 struct dma_heap_allocation_data_local {
     uint64_t len;        // 申请长度（字节）
+    uint32_t fd;         // [out] 分配得到的 dma-buf fd（内核回填）
     uint32_t fd_flags;   // O_RDWR | O_CLOEXEC
-    uint32_t heap_flags; // 0
+    uint64_t heap_flags; // 0
 };
 #define DMA_HEAP_IOCTL_ALLOC_LOCAL _IOWR(DMA_HEAP_IOC_MAGIC_LOCAL, 0x0, struct dma_heap_allocation_data_local)
 

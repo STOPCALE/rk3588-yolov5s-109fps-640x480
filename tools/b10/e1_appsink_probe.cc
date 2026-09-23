@@ -106,14 +106,10 @@ int main(int argc, char **argv)
             int got1b = run_pipeline("M1b 硬解直通(自动协商)", pl, "/tmp/b10_M1b.jpg");
             if (got1b == 0)
             {
-                // mppjpegdec 的 dma-feature 默认 true（输出 DMABuf，appsink 可能拿不到）→ 关掉再试
-                snprintf(pl, sizeof pl, "%smppjpegdec dma-feature=false ! video/x-raw,format=BGR ! %s", CAM, SINK);
-                int got1c = run_pipeline("M1c 硬解 dma-feature=false 直通", pl, "/tmp/b10_M1c.jpg");
-                if (got1c == 0)
-                {
-                    snprintf(pl, sizeof pl, "%smppjpegdec dma-feature=false format=16 ! %s", CAM, SINK);
-                    run_pipeline("M1d 硬解 dma-feature=false format=BGR", pl, "/tmp/b10_M1d.jpg");
-                }
+                // 2026-09-23 已试（记录见 B10 验证报告）：dma-feature=false 直通（M1c）仍 0 帧
+                // （gst_buffer_resize_range 断言失败）；M1d（format=16 变体）会直接 core dump。
+                // 结论：本栈（OpenCV 4.2 + gst-rockchip 1.14.4）下 mppjpegdec 直通 appsink 不可行。
+                printf("[M1c/M1d] 跳过（已断定为不可行，避免崩溃；详情见报告）\n");
             }
         }
     }

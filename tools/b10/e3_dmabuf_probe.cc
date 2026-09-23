@@ -114,6 +114,7 @@ int main(int argc, char **argv)
     memcpy(u8buf.data(), lb.data, INSZ);
     std::vector<int8_t> i8buf(INSZ);
     for (uint32_t i = 0; i < INSZ; i++) i8buf[i] = (int8_t)((int)u8buf[i] - 128);
+    std::vector<uint8_t> outN, outZ;   // 保存两路径最后帧的 out[0]，供逐字节对比
 
     // ---- 单独测 inputs_set 拷贝成本 ----
     {
@@ -145,7 +146,11 @@ int main(int argc, char **argv)
             memset(outs.data(), 0, sizeof(rknn_output) * io_num.n_output);
             for (uint32_t k = 0; k < io_num.n_output; k++) { outs[k].index = k; outs[k].want_float = 0; outs[k].is_prealloc = 0; }
             rknn_outputs_get(ctx, io_num.n_output, outs.data(), nullptr);
-            if (i == iters - 1) hashN = fnv1a((uint8_t *)outs[0].buf, outs[0].size);
+            if (i == iters - 1)
+            {
+                hashN = fnv1a((uint8_t *)outs[0].buf, outs[0].size);
+                outN.assign((uint8_t *)outs[0].buf, (uint8_t *)outs[0].buf + outs[0].size);
+            }
             rknn_outputs_release(ctx, io_num.n_output, outs.data());
         }
         msN = (now_ms() - t0) / iters;
@@ -189,13 +194,42 @@ int main(int argc, char **argv)
             memset(outs.data(), 0, sizeof(rknn_output) * io_num.n_output);
             for (uint32_t k = 0; k < io_num.n_output; k++) { outs[k].index = k; outs[k].want_float = 0; outs[k].is_prealloc = 0; }
             rknn_outputs_get(ctx, io_num.n_output, outs.data(), nullptr);
-            if (i == iters - 1) hashZ = fnv1a((uint8_t *)outs[0].buf, outs[0].size);
+            if (i == iters - 1)
+            {
+                hashZ = fnv1a((uint8_t *)outs[0].buf, outs[0].size);
+                outZ.assign((uint8_t *)outs[0].buf, (uint8_t *)outs[0].buf + outs[0].size);
+            }
             rknn_outputs_release(ctx, io_num.n_output, outs.data());
         }
         double msZ = (now_ms() - t0) / iters;
         printf("[Z] 零拷贝路径（run+outputs，无输入拷贝）: %.3f ms/帧 × %d 帧, hash=%08x\n", msZ, iters, hashZ);
-        printf("[Z] 输出对比: %s\n", (hashZ == hashN) ? "一致 ✓（零拷贝链路正确）" : "⚠️ 不一致（待进一步排查）");
+        printf("[Z] 输出对比: %s\n", (hashZ == hashN) ? "一致 ✓（零拷贝链路正确）" : "⚠️ 不一致（看下面逐字节差异）");
+        if (!outN.empty() && outN.size() == outZ.size())
+        {
+            int mx = 0; size_t neq = 0;
+            for (size_t i = 0; i < outN.size(); i++)
+            { int d = (int)outN[i] - (int)outZ[i]; if (d < 0) d = -d; if (d > mx) mx = d; if (d) ++neq; }
+            printf("[Z] out[0] 逐字节差异: max=%d, 不一致 %zu/%zu 字节\n", mx, neq, outN.size());
+        }
         printf("[Z] 收益: 标准 %.3f ms vs 零拷贝 %.3f ms → 省 %.3f ms/帧\n", msN, msZ, msN - msZ);
+
+        // ---- 变体 Z2：让 runtime 自己做转换（u8 数据 + pass_through=0，与标准路径完全同源）----
+        memcpy(zvirt, u8buf.data(), INSZ);
+        memcpy(&zattr, &in_attr, sizeof zattr);
+        zattr.index = 0; zattr.pass_through = 0; zattr.type = RKNN_TENSOR_UINT8;
+        ret = rknn_set_io_mem(ctx, zmem, &zattr);
+        printf("[Z2] set_io_mem(pass_through=0, UINT8): ret=%d\n", ret);
+        if (ret == 0)
+        {
+            rknn_run(ctx, nullptr);
+            std::vector<rknn_output> outs2(io_num.n_output);
+            memset(outs2.data(), 0, sizeof(rknn_output) * io_num.n_output);
+            for (uint32_t k = 0; k < io_num.n_output; k++) { outs2[k].index = k; outs2[k].want_float = 0; outs2[k].is_prealloc = 0; }
+            rknn_outputs_get(ctx, io_num.n_output, outs2.data(), nullptr);
+            uint32_t h2 = fnv1a((uint8_t *)outs2[0].buf, outs2[0].size);
+            rknn_outputs_release(ctx, io_num.n_output, outs2.data());
+            printf("[Z2] hash=%08x → 与标准路径 %s\n", h2, (h2 == hashN) ? "一致 ✓" : "仍不一致");
+        }
     }
     else
     {

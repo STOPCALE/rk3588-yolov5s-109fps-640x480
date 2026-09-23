@@ -103,6 +103,53 @@ int main(int argc, char **argv)
         cv::imwrite("/tmp/e2_B.jpg", dstB);
     }
 
+    // ================= A2. 句柄版 imcopy（importbuffer 一次，循环里复用）=================
+    {
+        cv::Mat dsth(640, 640, CV_8UC3, cv::Scalar(114, 114, 114));
+        rga_buffer_handle_t hSrc = importbuffer_virtualaddr(src.data, src.cols, src.rows, RK_FORMAT_BGR_888);
+        rga_buffer_handle_t hDst = importbuffer_virtualaddr(dsth.data + 80 * 640 * 3, 640, 480, RK_FORMAT_BGR_888);
+        rga_buffer_t sh = wrapbuffer_handle(hSrc, src.cols, src.rows, RK_FORMAT_BGR_888);
+        rga_buffer_t dh = wrapbuffer_handle(hDst, 640, 480, RK_FORMAT_BGR_888);
+        IM_STATUS st = imcopy(sh, dh, 1);
+        printf("[A2] warmup imcopy(handle): %s\n", imStrError(st));
+        int ok = 0; double t0 = now_ms();
+        for (int i = 0; i < iters; i++)
+        {
+            st = imcopy(sh, dh, 1);
+            if (!(st == IM_STATUS_SUCCESS || st == IM_STATUS_NOERROR))
+            { printf("[A2] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            ++ok;
+        }
+        double t1 = now_ms();
+        printf("[A2] RGA 摆放（handle 版）                : %d/%d 次  avg %.4f ms\n",
+               ok, iters, (t1 - t0) / (ok > 0 ? ok : 1));
+        releasebuffer_handle(hSrc); releasebuffer_handle(hDst);
+    }
+
+    // ================= B2. 句柄版 imresize（720p → 640×360）=================
+    {
+        cv::Mat src720; cv::resize(src, src720, cv::Size(1280, 720));
+        cv::Mat dsth(640, 640, CV_8UC3, cv::Scalar(114, 114, 114));
+        rga_buffer_handle_t hSrc = importbuffer_virtualaddr(src720.data, 1280, 720, RK_FORMAT_BGR_888);
+        rga_buffer_handle_t hDst = importbuffer_virtualaddr(dsth.data + 140 * 640 * 3, 640, 360, RK_FORMAT_BGR_888);
+        rga_buffer_t sh = wrapbuffer_handle(hSrc, 1280, 720, RK_FORMAT_BGR_888);
+        rga_buffer_t dh = wrapbuffer_handle(hDst, 640, 360, RK_FORMAT_BGR_888);
+        IM_STATUS st = imresize(sh, dh, 0.5, 0.5, 0, 1);
+        printf("[B2] warmup imresize(handle): %s\n", imStrError(st));
+        int ok = 0; double t0 = now_ms();
+        for (int i = 0; i < iters; i++)
+        {
+            st = imresize(sh, dh, 0.5, 0.5, 0, 1);
+            if (!(st == IM_STATUS_SUCCESS || st == IM_STATUS_NOERROR))
+            { printf("[B2] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            ++ok;
+        }
+        double t1 = now_ms();
+        printf("[B2] RGA 缩放（handle 版）                : %d/%d 次  avg %.4f ms\n",
+               ok, iters, (t1 - t0) / (ok > 0 ? ok : 1));
+        releasebuffer_handle(hSrc); releasebuffer_handle(hDst);
+    }
+
     // ================= C. CPU 对照（当前 letterbox 的实现）=================
     {
         cv::Mat scaled, outC;

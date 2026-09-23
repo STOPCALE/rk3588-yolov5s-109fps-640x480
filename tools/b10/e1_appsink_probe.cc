@@ -103,7 +103,18 @@ int main(int argc, char **argv)
         if (got == 0)
         {
             snprintf(pl, sizeof pl, "%smppjpegdec ! %s", CAM, SINK);
-            run_pipeline("M1b 硬解直通(自动协商)", pl, "/tmp/b10_M1b.jpg");
+            int got1b = run_pipeline("M1b 硬解直通(自动协商)", pl, "/tmp/b10_M1b.jpg");
+            if (got1b == 0)
+            {
+                // mppjpegdec 的 dma-feature 默认 true（输出 DMABuf，appsink 可能拿不到）→ 关掉再试
+                snprintf(pl, sizeof pl, "%smppjpegdec dma-feature=false ! video/x-raw,format=BGR ! %s", CAM, SINK);
+                int got1c = run_pipeline("M1c 硬解 dma-feature=false 直通", pl, "/tmp/b10_M1c.jpg");
+                if (got1c == 0)
+                {
+                    snprintf(pl, sizeof pl, "%smppjpegdec dma-feature=false format=16 ! %s", CAM, SINK);
+                    run_pipeline("M1d 硬解 dma-feature=false format=BGR", pl, "/tmp/b10_M1d.jpg");
+                }
+            }
         }
     }
 
@@ -114,13 +125,46 @@ int main(int argc, char **argv)
         run_pipeline("M2 硬解+videoconvert", pl, nullptr);
     }
 
-    // ---------- M3：文件单帧正确性（硬解 vs OpenCV 软解）----------
+    // ---------- M4：原始 MJPEG 直读（不解码）——分离「V4L2/拷贝」与「解码」的成本 ----------
+    {
+        cv::VideoCapture cap;
+        if (cap.open("/dev/video0", cv::CAP_V4L2))
+        {
+            cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
+            cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+            cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+            cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+            cap.set(cv::CAP_PROP_FPS, 120);
+            cap.set(cv::CAP_PROP_CONVERT_RGB, 0);          // 拿原始 JPEG 字节（不软解）
+            cv::Mat f;
+            for (int i = 0; i < 10; i++) cap.read(f);
+            std::vector<double> ts; int got = 0;
+            double t0 = cv::getTickCount();
+            while (got < g_frames)
+            {
+                int64_t a = cv::getTickCount();
+                if (!cap.read(f)) break;
+                ts.push_back((cv::getTickCount() - a) * 1000.0 / tick);
+                ++got;
+            }
+            double wall = (cv::getTickCount() - t0) * 1000.0 / tick;
+            report("M4 原始MJPEG直读(CONVERT_RGB=0)", ts, wall, got);
+            if (!f.empty() && f.total() > 1)
+                printf("[M4] 首两字节=%02x %02x（ff d8 = 原始 JPEG 确认）\n",
+                       (unsigned char)f.data[0], (unsigned char)f.data[1]);
+            cap.release();
+        }
+        else printf("[M4] 打不开 /dev/video0\n");
+    }
+
+    // ---------- M3：文件正确性（硬解 vs OpenCV 软解）----------
     {
         const char *jpg = "/home/orangepi/videos/cam_20260923_125232/frame_000000.jpg";
+        const char *mjpeg = "/tmp/b10_all10.mjpeg";            // 单文件小流 gst 兼容有问题，改用拼接大流
         char pl[1024];
         snprintf(pl, sizeof pl,
                  "filesrc location=%s ! image/jpeg ! jpegparse ! mppjpegdec ! video/x-raw,format=BGR ! %s",
-                 jpg, SINK);
+                 mjpeg, SINK);
         cv::VideoCapture cap;
         if (cap.open(pl, cv::CAP_GSTREAMER))
         {

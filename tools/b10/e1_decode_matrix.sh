@@ -10,8 +10,11 @@
 #  前置：板子已定频（demo lock）；运行相机段时确保没有别的程序占相机
 #  用法（板子上）：
 #      bash ~/myproj/tools/b10/e1_decode_matrix.sh [帧目录] [圈数]
-#  说明：文件链路用 loop=true 循环多圈，摊薄 gst-launch 启动开销（~0.1-0.2s）；
-#        默认素材：~/videos/cam_20260923_125232 的 329 帧原始 JPEG（cam_record --jpg 录的）
+#  说明（v1.1，2026-09-23）：
+#    · 旧版用 multifilesrc loop=true 循环多圈 → 实测「mppjpegdec 段卡死」（记录：诊断案例），
+#      改为预先把 N 圈 JPEG 首尾相接拼成一个 MJPEG 流（filesrc 一次读完），简单可靠
+#    · 每项加 timeout 兜底（单项卡死不会拖垮整套实验）
+#    · 默认素材：~/videos/cam_20260923_125232 的 329 帧原始 JPEG（cam_record --jpg 录的）
 # =============================================================================
 set -u
 D="${1:-$HOME/videos/cam_20260923_125232}"
@@ -25,17 +28,25 @@ run() { local label="$1"; shift; echo "=== $label ==="; time "$@"; echo "rc=$?";
 
 echo "帧目录: $D（$PER 帧/圈，循环 $LOOPS 圈 = $N1 帧）"
 
-# --- 文件序列：解码链路对照（全部走 benchmark，不含相机）---
-run "1L-SW-jpegdec-x$LOOPS"    $T gst-launch-1.0 -q multifilesrc location=$D/frame_%06d.jpg caps=image/jpeg loop=true ! jpegparse ! jpegdec ! fakesink sync=false num-buffers=$N1
-run "2L-HW-mppjpegdec-x$LOOPS" $T gst-launch-1.0 -q multifilesrc location=$D/frame_%06d.jpg caps=image/jpeg loop=true ! jpegparse ! mppjpegdec ! fakesink sync=false num-buffers=$N1
-run "3L-HW-BGR-x$LOOPS"        $T gst-launch-1.0 -q multifilesrc location=$D/frame_%06d.jpg caps=image/jpeg loop=true ! jpegparse ! mppjpegdec ! video/x-raw,format=BGR ! fakesink sync=false num-buffers=$N1
-run "4L-HW-DMABuf-x$LOOPS"     $T gst-launch-1.0 -q multifilesrc location=$D/frame_%06d.jpg caps=image/jpeg loop=true ! jpegparse ! mppjpegdec ! "video/x-raw(memory:DMABuf),format=BGR" ! fakesink sync=false num-buffers=$N1
-run "5L-HW-vconv-BGR-x2"       $T gst-launch-1.0 -q multifilesrc location=$D/frame_%06d.jpg caps=image/jpeg loop=true ! jpegparse ! mppjpegdec ! videoconvert ! video/x-raw,format=BGR ! fakesink sync=false num-buffers=$N2
+# --- 预拼一个大 MJPEG 流：N 圈 JPEG 首尾相接，filesrc 一次读完 ---
+PREP=/tmp/b10_all10.mjpeg
+if [ ! -f "$PREP" ] || [ "$(stat -c%s "$PREP" 2>/dev/null || echo 0)" -lt 1000000 ]; then
+    echo "拼接 MJPEG 流（$LOOPS 圈）→ $PREP"
+    ( cd "$D" && for i in $(seq 1 $LOOPS); do cat frame_*.jpg; done ) > "$PREP"
+fi
+ls -l "$PREP"
 
-# --- 摄像头实时链路（600 帧/组）---
-run "6-cam-raw"     $T gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! fakesink sync=false
-run "7-cam-mpp"     $T gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! mppjpegdec ! fakesink sync=false
-run "8-cam-mpp-BGR" $T gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! mppjpegdec ! video/x-raw,format=BGR ! fakesink sync=false
+# --- 文件序列：解码链路对照 ---
+run "1C-SW-jpegdec"    $T timeout 120 gst-launch-1.0 -q filesrc location=$PREP ! image/jpeg ! jpegparse ! jpegdec ! fakesink sync=false num-buffers=$N1
+run "2C-HW-mppjpegdec" $T timeout 120 gst-launch-1.0 -q filesrc location=$PREP ! image/jpeg ! jpegparse ! mppjpegdec ! fakesink sync=false num-buffers=$N1
+run "3C-HW-BGR"        $T timeout 120 gst-launch-1.0 -q filesrc location=$PREP ! image/jpeg ! jpegparse ! mppjpegdec ! video/x-raw,format=BGR ! fakesink sync=false num-buffers=$N1
+run "4C-HW-DMABuf"     $T timeout 120 gst-launch-1.0 -q filesrc location=$PREP ! image/jpeg ! jpegparse ! mppjpegdec ! "video/x-raw(memory:DMABuf),format=BGR" ! fakesink sync=false num-buffers=$N1
+run "5C-HW-vconv-BGR"  $T timeout 120 gst-launch-1.0 -q filesrc location=$PREP ! image/jpeg ! jpegparse ! mppjpegdec ! videoconvert ! video/x-raw,format=BGR ! fakesink sync=false num-buffers=$N2
+
+# --- 摄像头实时链路（600 帧/组，timeout 兜底）---
+run "6-cam-raw"     $T timeout 60 gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! fakesink sync=false
+run "7-cam-mpp"     $T timeout 60 gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! mppjpegdec ! fakesink sync=false
+run "8-cam-mpp-BGR" $T timeout 60 gst-launch-1.0 -q v4l2src device=/dev/video0 num-buffers=600 ! image/jpeg,width=640,height=480,framerate=120/1 ! mppjpegdec ! video/x-raw,format=BGR ! fakesink sync=false
 
 # --- 硬解一帧导出（目视正确性检查；拷回 PC 用看图软件确认）---
 echo "=== DUMP-1frame（硬解 BGR 导出）==="

@@ -42,10 +42,22 @@ struct dma_heap_allocation_data_local {
 };
 #define DMA_HEAP_IOCTL_ALLOC_LOCAL _IOWR(DMA_HEAP_IOC_MAGIC_LOCAL, 0x0, struct dma_heap_allocation_data_local)
 
-static int dma_heap_alloc(uint64_t size, void **virt_out)
+// dma-buf 缓存同步 ioctl（对 cached heap 必须；uncached 上无害）
+struct dma_buf_sync_local { uint64_t flags; };
+#define DMA_BUF_SYNC_WRITE_LOCAL (2 << 0)   // 我们要写它
+#define DMA_BUF_SYNC_END_LOCAL   (1 << 2)
+#define DMA_BUF_IOCTL_SYNC_LOCAL _IOW('b', 0, struct dma_buf_sync_local)
+static void buf_sync_end_write(int fd)
 {
-    int hfd = open("/dev/dma_heap/system", O_RDWR | O_CLOEXEC);
-    if (hfd < 0) { printf("[dma] 打开 /dev/dma_heap/system 失败: %s\n", strerror(errno)); return -1; }
+    struct dma_buf_sync_local s;
+    s.flags = DMA_BUF_SYNC_WRITE_LOCAL | DMA_BUF_SYNC_END_LOCAL;
+    ioctl(fd, DMA_BUF_IOCTL_SYNC_LOCAL, &s);   // 写完：结束 CPU 访问（把 cache 刷给设备看）
+}
+
+static int dma_heap_alloc(const char *heap, uint64_t size, void **virt_out)
+{
+    int hfd = open(heap, O_RDWR | O_CLOEXEC);
+    if (hfd < 0) { printf("[dma] 打开 %s 失败: %s\n", heap, strerror(errno)); return -1; }
     struct dma_heap_allocation_data_local d;
     memset(&d, 0, sizeof d);
     d.len = size;
@@ -97,9 +109,9 @@ int main(int argc, char **argv)
     memset(&in_attr, 0, sizeof in_attr);
     in_attr.index = 0;
     rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &in_attr, sizeof(in_attr));
-    printf("input: dims=[%u,%u,%u,%u] fmt=%d type=%d pass=%u\n",
+    printf("input: dims=[%u,%u,%u,%u] fmt=%d type=%d pass=%u size=%u\n",
            in_attr.dims[0], in_attr.dims[1], in_attr.dims[2], in_attr.dims[3],
-           in_attr.fmt, in_attr.type, in_attr.pass_through);
+           in_attr.fmt, in_attr.type, in_attr.pass_through, in_attr.size);
 
     // ---- 准备输入：帧 → letterbox 640×640（u8 BGR）→ int8 版本 ----
     cv::Mat fr = cv::imread(jpg, cv::IMREAD_COLOR);
@@ -159,9 +171,10 @@ int main(int argc, char **argv)
 
     // ---- 零拷贝路径 Z ----
     void *zvirt = nullptr;
-    int zfd = dma_heap_alloc(INSZ, &zvirt);
+    int zfd = dma_heap_alloc("/dev/dma_heap/system", INSZ, &zvirt);
     if (zfd < 0) { printf("[Z] 无法申请 dma-buf，跳过\n"); rknn_destroy(ctx); return 0; }
     memcpy(zvirt, i8buf.data(), INSZ);   // 预先把数据放进 dma-buf（之后不再拷贝）
+    buf_sync_end_write(zfd);             // cached heap：写完后必须同步 cache（关键！）
 
     rknn_tensor_mem *zmem = rknn_create_mem_from_fd(ctx, zfd, zvirt, INSZ, 0);
     printf("[Z] rknn_create_mem_from_fd: %s (mem=%p virt=%p fd=%d size=%u)\n",
@@ -213,24 +226,39 @@ int main(int argc, char **argv)
         }
         printf("[Z] 收益: 标准 %.3f ms vs 零拷贝 %.3f ms → 省 %.3f ms/帧\n", msN, msZ, msN - msZ);
 
-        // ---- 变体 Z2：让 runtime 自己做转换（u8 数据 + pass_through=0，与标准路径完全同源）----
-        memcpy(zvirt, u8buf.data(), INSZ);
-        memcpy(&zattr, &in_attr, sizeof zattr);
-        zattr.index = 0; zattr.pass_through = 0; zattr.type = RKNN_TENSOR_UINT8;
-        ret = rknn_set_io_mem(ctx, zmem, &zattr);
-        printf("[Z2] set_io_mem(pass_through=0, UINT8): ret=%d\n", ret);
-        if (ret == 0)
+        // ---- 变体 Z2/Z3：换缓存策略再验正确性（排查 dma-buf 缓存一致性）----
         {
-            rknn_run(ctx, nullptr);
-            std::vector<rknn_output> outs2(io_num.n_output);
-            memset(outs2.data(), 0, sizeof(rknn_output) * io_num.n_output);
-            for (uint32_t k = 0; k < io_num.n_output; k++) { outs2[k].index = k; outs2[k].want_float = 0; outs2[k].is_prealloc = 0; }
-            rknn_outputs_get(ctx, io_num.n_output, outs2.data(), nullptr);
-            uint32_t h2 = fnv1a((uint8_t *)outs2[0].buf, outs2[0].size);
-            rknn_outputs_release(ctx, io_num.n_output, outs2.data());
-            printf("[Z2] hash=%08x → 与标准路径 %s\n", h2, (h2 == hashN) ? "一致 ✓" : "仍不一致");
+            const char *heaps[2] = { "/dev/dma_heap/system-uncached", "/dev/dma_heap/system" };
+            for (int hi = 0; hi < 2; hi++)
+            {
+                void *v2 = nullptr;
+                int fd2 = dma_heap_alloc(heaps[hi], INSZ, &v2);
+                if (fd2 < 0) { printf("[Z2.%d] %s 不可用\n", hi, heaps[hi]); continue; }
+                memcpy(v2, i8buf.data(), INSZ);
+                buf_sync_end_write(fd2);
+                rknn_tensor_mem *m2 = rknn_create_mem_from_fd(ctx, fd2, v2, INSZ, 0);
+                rknn_tensor_attr a2;
+                memcpy(&a2, &in_attr, sizeof a2);
+                a2.index = 0; a2.pass_through = 1;
+                int r2 = rknn_set_io_mem(ctx, m2, &a2);
+                printf("[Z2.%d] %s: create=%s set_io_mem=%d → ", hi, heaps[hi], m2 ? "OK" : "NULL", r2);
+                if (m2 && r2 == 0)
+                {
+                    rknn_run(ctx, nullptr);
+                    std::vector<rknn_output> o2(io_num.n_output);
+                    memset(o2.data(), 0, sizeof(rknn_output) * io_num.n_output);
+                    for (uint32_t k = 0; k < io_num.n_output; k++) { o2[k].index = k; o2[k].want_float = 0; o2[k].is_prealloc = 0; }
+                    rknn_outputs_get(ctx, io_num.n_output, o2.data(), nullptr);
+                    uint32_t h = fnv1a((uint8_t *)o2[0].buf, o2[0].size);
+                    rknn_outputs_release(ctx, io_num.n_output, o2.data());
+                    printf("hash=%08x → 与标准 %s\n", h, (h == hashN) ? "一致 ✓（缓存一致性就是原因）" : "仍不一致");
+                }
+                else printf("跳过\n");
+                if (m2) rknn_destroy_mem(ctx, m2);
+                munmap(v2, INSZ);
+                close(fd2);
+            }
         }
-    }
     else
     {
         printf("[Z] set_io_mem 两种方式均失败 → 该 runtime 上此路径暂不可用\n");

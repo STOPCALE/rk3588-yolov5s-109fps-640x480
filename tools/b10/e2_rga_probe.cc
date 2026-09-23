@@ -56,14 +56,20 @@ int main(int argc, char **argv)
 
         IM_STATUS st = imcopy(sA, dA, 1);                              // 预热 + 正确性
         printf("[A] warmup imcopy: %s\n", imStrError(st));
+        int ok = 0;   // 成功计数（修 bug：成功常量是 IM_STATUS_SUCCESS=1；NOERROR=2 不是成功判断）
         double t0 = now_ms();
         for (int i = 0; i < iters; i++)
         {
             st = imcopy(sA, dA, 1);
-            if (st != IM_STATUS_NOERROR) { printf("[A] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            if (!(st == IM_STATUS_SUCCESS || st == IM_STATUS_NOERROR))
+            { printf("[A] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            ++ok;
         }
         double t1 = now_ms();
-        printf("[A] RGA 摆放 (imcopy 640x480->640x640)    : %d 次  avg %.4f ms\n", iters, (t1 - t0) / iters);
+        printf("[A] RGA 摆放 (imcopy 640x480->640x640)    : %d/%d 次  avg %.4f ms\n",
+               ok, iters, (t1 - t0) / (ok > 0 ? ok : 1));
+        printf("[A] 正确性 |dst-src| 最大像素差 = %.0f（0 = 逐字节一致）\n",
+               cv::norm(dstA(cv::Rect(0, 80, src.cols, src.rows)), src, cv::NORM_INF));
         cv::imwrite("/tmp/e2_A.jpg", dstA);
     }
 
@@ -78,14 +84,22 @@ int main(int argc, char **argv)
 
         IM_STATUS st = imresize(sB, dB, 0.5, 0.5, 0, 1);               // 显式 0.5×（720p→360p），写入 640×360 视图
         printf("[B] warmup imresize: %s\n", imStrError(st));
+        int ok = 0;
         double t0 = now_ms();
         for (int i = 0; i < iters; i++)
         {
             st = imresize(sB, dB, 0.5, 0.5, 0, 1);
-            if (st != IM_STATUS_NOERROR) { printf("[B] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            if (!(st == IM_STATUS_SUCCESS || st == IM_STATUS_NOERROR))
+            { printf("[B] 第 %d 次失败: %s\n", i, imStrError(st)); break; }
+            ++ok;
         }
         double t1 = now_ms();
-        printf("[B] RGA 缩放 (720p->640x360->640x640)     : %d 次  avg %.4f ms\n", iters, (t1 - t0) / iters);
+        printf("[B] RGA 缩放 (720p->640x360->640x640)     : %d/%d 次  avg %.4f ms\n",
+               ok, iters, (t1 - t0) / (ok > 0 ? ok : 1));
+        cv::Mat refB;
+        cv::resize(src, refB, cv::Size(640, 360));
+        printf("[B] 正确性 |dst-参考| 最大像素差 = %.0f（与 cv::resize 的插值差异）\n",
+               cv::norm(dstB(cv::Rect(0, 140, 640, 360)), refB, cv::NORM_INF));
         cv::imwrite("/tmp/e2_B.jpg", dstB);
     }
 

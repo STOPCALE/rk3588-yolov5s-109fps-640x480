@@ -65,6 +65,18 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | `src/cam_record.cc` | 摄像头录像（建数据集） | 拍训练素材 | 预跑估真实帧率；MJPEG 直通（`CONVERT_RGB=0`）零损失存原图；ffmpeg 放全核不抢采集大核；录制时屏幕预览（独立线程，不拖采集） |
 | `tools/board.sh`（板载入口 `demo`） | 板子上敲 `demo cam/vis/test/lock/status/off` 的统一入口（已配 `~/bin/demo`） | 板子上日常使用（不在 PC 旁边时） | 包装 `run-demo.sh`（找安装目录+绑大核+锁频警告）；`readlink -f "$0"` 支持符号链接启动 |
 
+### B10 验证工具（2026-09-23，`tools/b10/`）
+
+> 背景：执行《B10优化验证报告》的全部实验（**用户指派：只验证不实现**）；报告在 `docs/B10优化验证报告.md`。
+
+| 工具 | 干什么 | 关键思路 |
+|---|---|---|
+| `tools/b10/e1_decode_matrix.sh` | 解码链路对照（软/硬解、BGR 直出、DMABuf、相机链路、PIL 交叉验证） | 拼接 MJPEG 流摊薄启动开销；每项 timeout 兜底 |
+| `tools/b10/e1_appsink_probe.cc` | OpenCV 交付路径探针（M0 基线/M1 直通/M2 vconv/M4 原始直读） | 同场多模式对照；`CONVERT_RGB=0` 分离"拷贝"与"解码"成本 |
+| `tools/b10/e1_mpp_vs_pil_check.py` | 硬解裸帧 vs PIL 逐像素核对 | 独立解码实现交叉验证（BGR 对齐后逐字节比） |
+| `tools/b10/e2_rga_probe.cc` | RGA 摆放/缩放耗时 + 正确性（含句柄版对照） | importbuffer 一次 + wrapbuffer_handle；CPU 对照作参照 |
+| `tools/b10/e3_dmabuf_probe.cc` | DMA-BUF 零拷贝喂 NPU（fd 导入、set_io_mem、哈希对比） | FNV-1a 输出哈希做正确性判据；Z1b/Z1c/Z1d 逐步定位"首次绑定不生效" |
+
 ## 4. 掌握标准（自查表）
 
 - [ ] 能画出 B9 数据流图：帧 → `predictor.update()` → 15B 包 → UART（并说出每步的时间量级）
@@ -85,3 +97,4 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | 原理与公式（串口带宽、预测公式、弹道） | 附录 C《手算与公式手册》§7.7、§8.6 |
 | 测试手段分类与测量陷阱 | 附录 B《验证与测量手册》 |
 | 失败与教训（案例 19 / 20 / 21） | 附录 D《调试与实验方法论》 |
+| B10 优化验证（硬解 / RGA / 零拷贝） | 《B10优化验证报告》（附录 F）；工具登记见本文 §3 末 |

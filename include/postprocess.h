@@ -19,6 +19,11 @@ typedef struct _BOX_RECT
     int bottom;
 } BOX_RECT;
 
+//-----------------------------------------------------------------------------
+// 【教学化改造注】以下为原工程旧接口（post_process / deinitPostProcess / detect_result_t）：
+//   当前工程已改用下方的 vb_* 新实现（vb_decode / vb_nms / vb_to_original）。
+//   旧接口【未实现、未调用】，仅作对照参考 —— 属"待重写范围"。
+//-----------------------------------------------------------------------------
 typedef struct __detect_result_t
 {
     char name[OBJ_NAME_MAX_SIZE];

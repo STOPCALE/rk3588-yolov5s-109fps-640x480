@@ -283,11 +283,27 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         outputs[i].is_prealloc  =0;//此处为runtime分配buf，release时自动释放
     }
     ret = rknn_outputs_get(ctx, io_num.n_output, outputs.data(), nullptr);
-    if (ret < 0) {  printf("rknn_outputs_get error ret=%d\n", ret); return result;}
+    if (ret < 0)
+    {
+        printf("rknn_outputs_get error ret=%d\n", ret);
+        rknn_outputs_release(ctx, io_num.n_output, outputs.data());   // 【§1.5 修复】失败路径也统一释放
+        return result;
+    }
 
     //B7-1预筛+解码
+    // 【§1.5 修复】不再硬编码 3 个输出头：
+    //   旧代码直接按 VB_HEAD_NUM=3 遍历并访问 outputs[i]，
+    //   一旦换成输出数≠3 的模型 → 越界/漏读（UB）且无友好提示。
+    //   现在：先检查、后按 io_num.n_output 遍历（当前模型仍然成立）。
+    if (io_num.n_output != VB_HEAD_NUM)
+    {
+        printf("infer: 模型输出头数=%u，当前解码器只支持 %d 头（需改解码器再来）\n",
+               io_num.n_output, VB_HEAD_NUM);
+        rknn_outputs_release(ctx, io_num.n_output, outputs.data());
+        return result;
+    }
     vb_head_t heads[VB_HEAD_NUM];
-    for (int i = 0; i < VB_HEAD_NUM; i++)
+    for (uint32_t i = 0; i < io_num.n_output; i++)
     {
         heads[i].data   = (const int8_t *)outputs[i].buf;
         heads[i].grid_h = (int)output_attrs[i].dims[2];     //NCHW

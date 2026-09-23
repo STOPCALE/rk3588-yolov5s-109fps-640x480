@@ -123,6 +123,10 @@ namespace dpool
                             finishedThreadIDs_.emplace(std::this_thread::get_id());
                             return;
                         }
+                        // 【§1.5 修复】虚假唤醒（spurious wakeup）时：任务仍为空、既没退出也没超时，
+                        //   旧代码会直接落到下面的 tasks_.front() → 对空队列取队首 = 未定义行为（UB）。
+                        //   修复：回去重新等待（uniqueLock 随作用域析构自动解锁）。
+                        continue;
                     }
                     task = std::move(tasks_.front());
                     tasks_.pop();

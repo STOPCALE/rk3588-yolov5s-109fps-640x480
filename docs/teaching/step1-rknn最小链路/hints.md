@@ -16,7 +16,7 @@
 
 | 症状 | 先查什么 |
 |---|---|
-| `channel=640, height=3` | dims 按 NCHW 还是 NHWC 读的？`fmt` 分支对不对？ |
+| 打印出 `channel=640, width=3` | dims 读法按 `fmt` 分支了吗？（本项目输入 NHWC、输出 NCHW） |
 | `rknn_query` 返回负值 | `attr.index = i` 写了吗？结构体清零了吗？ |
 | `inputs_set` 报尺寸错 | `inputs[0].size` 的四则运算（w×h×c）和 buf 指向的数据一致吗？ |
 | 输出全零/乱 | `rknn_outputs_get` 的参数顺序？want_float 参数？ |
@@ -30,7 +30,7 @@
 input_attrs[i].index = i;                       // 不写这行→查询结果无意义
 ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &input_attrs[i], sizeof(rknn_tensor_attr));
 
-// ② NCHW / NHWC 分支
+// ② NCHW / NHWC 分支（本项目：输入 fmt=1(NHWC)、输出 fmt=0(NCHW)→两处都不能写死）
 if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
 { channel = dims[1]; height = dims[2]; width = dims[3]; }
 else

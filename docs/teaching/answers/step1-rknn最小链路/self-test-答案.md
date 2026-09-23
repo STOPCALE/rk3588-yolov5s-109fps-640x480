@@ -7,11 +7,11 @@
    ⑤ IN_OUT_NUM——拿到循环边界；⑥ INPUT_ATTR——拿 dims/fmt 推导 h/w/c；
    ⑦ OUTPUT_ATTR——拿 dims/zp/scale（量化参数抄一份复用）。
 2. **四件套**：inputs_set（喂）→ run（推）→ outputs_get（取）→ outputs_release（还）。
-   漏"还"：**2.14 MB/帧**泄漏（3 个输出头合计），300 帧 ≈642 MB。
+   漏"还"：**每帧泄漏＝输出总量**（best ≈0.144 MB/帧、yolov5s ≈2.14 MB/帧），且单调累积不回落。
 3. `attr.index = i`：不写 → 查询读到的是**错误/未定义的张量**（常见为全零或上一张量），
    dims/scale 全不可信 → 尺寸错、结果错（见故障 1 案例的"维度读反"是同类问题的另一面）。
 4. NCHW：`c=dims[1], h=dims[2], w=dims[3]`；NHWC：`h=dims[1], w=dims[2], c=dims[3]`。
-   必须按 `fmt` 分支——实测与工具链/模型设定有关，**不能假设**；本项目 best.rknn 为 NCHW。
+   必须按 `fmt` 分支——本项目**输入是 NHWC(fmt=1)、输出是 NCHW(fmt=0)**，两个方向都可能踩坑，**不能假设**。
 
 ## 二、追问链（无标准答案，参考闭合点）
 

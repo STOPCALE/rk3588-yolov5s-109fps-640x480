@@ -259,6 +259,7 @@ int main(int argc, char **argv)
                 close(fd2);
             }
         }
+    }   // 关闭 if (ret == 0)（Z 段）
     else
     {
         printf("[Z] set_io_mem 两种方式均失败 → 该 runtime 上此路径暂不可用\n");

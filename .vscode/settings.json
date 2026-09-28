@@ -1,0 +1,22 @@
+{
+    // 统一用 UTF-8 保存, 避免中文注释乱码
+    "files.encoding": "utf8",
+
+    // 统一用 LF 行尾 —— 目标平台是 Linux, 避免 CRLF 引发
+    // "/bin/bash^M: bad interpreter" 之类的问题
+    "files.eol": "\n",
+
+    // 保存时自动去掉行尾多余空格
+    "files.trimTrailingWhitespace": true,
+
+    // C/C++ 提示(与 c_cpp_properties.json 配合)
+    "C_Cpp.default.cppStandard": "c++14",
+    "C_Cpp.default.cStandard": "c11",
+    "C_Cpp.errorSquiggles": "enabled",
+
+    // 让编辑器把 .rknn / .so 当二进制, 不要尝试当文本打开
+    "files.associations": {
+        "*.rknn": "binary",
+        "*.so": "binary"
+    }
+}

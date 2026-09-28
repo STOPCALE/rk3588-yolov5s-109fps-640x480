@@ -1,0 +1,26 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "RK3588-aarch64",
+            "compilerPath": "E:/mingw64/bin/g++.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "windows-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/include/3rdparty/rga/RK3588/include",
+                "${workspaceFolder}/../third_party_headers/opencv4"
+            ],
+            "defines": [],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src",
+                    "${workspaceFolder}/include",
+                    "${workspaceFolder}/../third_party_headers/opencv4"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ]
+}

@@ -11,7 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # //对构建类型和配置生成器进行配置，有-O0和-O3的区别
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "构建类型" FORCE)
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRING Debug Release RelwithDebInfo MinSizeRel)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
 # //生成COMPILE_COMMANDS开启

@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # //指定项目名称与项目涉及到的内容
-project(study_rknn_yolo_demo VERSION 1.0.0 LANGUAGE C C++)
+project(study_rknn_yolo_demo VERSION 1.0.0 LANGUAGES C C++)
 
 # //这里要指定c++标准
 set(CMAKE_CXX_STANDARD 14)
@@ -36,7 +36,7 @@ set(RGA_PATH "${CMAKE_SOURCE_DIR}/include/3rdparty/rga/RK3588")
 set(RGA_LIB  "${RGA_PATH}/lib/Linux/${CMAKE_SYSTEM_PROCESSOR}/librga.so")
 
 # //寻找所需的包
-find_package(Opencv 4 REQUIRED COMPONENTS core imgproc highgui videoio imgcodecs)
+find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc highgui videoio imgcodecs)
 find_package(Threads REQUIRED)
 
 # //设置共用文件
@@ -54,26 +54,26 @@ add_executable(study_rknn_yolo_demo
                 # ${RKNN_COMMON_SRC}
 )
 
-# //回归验证工具
-add_executable(bench_throughput
-                # src/bench_throughput.cc
-                # ${RKNN_COMMON_SRC}
-)
+# # //回归验证工具
+# add_executable(bench_throughput
+#                 # src/bench_throughput.cc
+#                 # ${RKNN_COMMON_SRC}
+# )
 
-# //视频解码探针
-add_executable(probe_video
-        # src/probe_video.cc
-)
+# # //视频解码探针
+# add_executable(probe_video
+#         # src/probe_video.cc
+# )
 
-# //摄像头诊断
-add_executable(cam_probe
-        # src/cam_probe.cc
-)
+# # //摄像头诊断
+# add_executable(cam_probe
+#         # src/cam_probe.cc
+# )
 
-# //摄像头录像工具
-add_executable(cam_record
-        # src/cam_record.cc
-)
+# # //摄像头录像工具
+# add_executable(cam_record
+#         # src/cam_record.cc
+# )
 
 # //依次使用循环将这些程序进行配置
 foreach(tgt study_rknn_yolo_demo)
@@ -90,7 +90,7 @@ foreach(tgt study_rknn_yolo_demo)
             Threads::Threads
     )
 
-    target_link_options(${tgt} PRIVATE -wl,--allow-shilb-undefined)
+        target_link_options(${tgt} PRIVATE -Wl,--allow-shlib-undefined)
 
 endforeach()
 

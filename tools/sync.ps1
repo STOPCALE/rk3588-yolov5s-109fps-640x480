@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 $PC_REPO   = "E:\desk\学习\C++\mytest\study_and_new"   # PC 上的工程目录（真源）
 $BOARD     = "board"                          # ~/.ssh/config 中的别名
 $BOARD_DIR = "~/newproj"                       # 板子上的工程目录
-$REMOTE    = "3588"                          # git remote 名（指向板子裸仓库）
+$REMOTE    = "board"                          # git remote 名（指向板子裸仓库）
 # ----------------------------------------------------------------------------
 
 function Step($m) { Write-Host "==> $m" -ForegroundColor Cyan  }

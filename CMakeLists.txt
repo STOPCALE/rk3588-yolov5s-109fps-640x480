@@ -2,8 +2,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # //指定项目名称与项目涉及到的内容
-project(study_rknn_yolo_demo VERSION 1.0.0 LANGUAGES C C++)
-
+project(study_rknn_yolo_demo VERSION 1.0.0 LANGUAGES C CXX)
 # //这里要指定c++标准
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

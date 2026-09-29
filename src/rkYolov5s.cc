@@ -263,6 +263,7 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
             pads.left, pads.right, pads.top, pads.bottom);
     }
 
+    //初始四步
     //数据交给引擎
     ret = rknn_inputs_set(ctx, io_num.n_input, inputs);
     if (ret < 0) { printf("rknn_inputs_set error ret=%d\n", ret); return result; }

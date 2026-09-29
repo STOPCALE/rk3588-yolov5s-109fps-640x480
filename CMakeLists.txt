@@ -42,7 +42,7 @@ find_package(Threads REQUIRED)
 set(RKNN_COMMON_SRC
         # src/postrocess.cc
         # src/preprocess.cc
-        # src/rkYolov5s.cc
+        src/rkYolov5s.cc
 )
 
 # //主要程序的拓展
@@ -50,7 +50,7 @@ add_executable(study_rknn_yolo_demo
                 src/main.cc
                 # src/uart.c
                 # src/trajectory_predictor.cc
-                # ${RKNN_COMMON_SRC}
+                ${RKNN_COMMON_SRC}
 )
 
 # # //回归验证工具

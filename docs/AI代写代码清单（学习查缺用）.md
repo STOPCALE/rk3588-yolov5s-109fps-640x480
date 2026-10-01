@@ -77,6 +77,22 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | `tools/b10/e2_rga_probe.cc` | RGA 摆放/缩放耗时 + 正确性（含句柄版对照） | importbuffer 一次 + wrapbuffer_handle；CPU 对照作参照 |
 | `tools/b10/e3_dmabuf_probe.cc` | DMA-BUF 零拷贝喂 NPU（fd 导入、set_io_mem、哈希对比） | FNV-1a 输出哈希做正确性判据；Z1b/Z1c/Z1d 逐步定位"首次绑定不生效" |
 
+### 延迟验证工具（2026-10-01，`tools/`）
+
+> 背景：完成"绝对端到端延迟"验证（用户指派：测试、验证、总结）；
+> 报告在 `docs/端到端延迟验证报告.md`（`00` §6 U）。全部为**诊断工具/脚本**，不进入主链路。
+
+| 工具 | 干什么 | 关键思路 |
+|---|---|---|
+| `tools/v4l2_time_probe.cc` | V4L2 内核时间戳：帧完成→用户态可见、真实帧周期 | 直接读 `buf.timestamp`（MONOTONIC）与 `clock_gettime` 差值；1/2/4 缓冲对照 |
+| `tools/screen_clock.cc` + `shot.py` | 全屏毫秒时钟（板子墙钟）+ 远程截屏 | 屏幕法参照物（因 ~50ms 装置延迟弃用；数字仍作"投屏代价"） |
+| `tools/tick_offset.py` | 测 wall−monotonic 偏移（µs 级、开机内恒定） | 对账的"钥匙"：把 cv::getTickCount 时间戳换算成墙钟 |
+| `tools/led_seq_probe.cc` | 逐帧"ROI 亮度 + 帧时间戳"（主测量） | 亮度序列与时间轴一步到位，免人工读图 |
+| `tools/led_flash.sh` | LED 闪烁 + µs 级开关时刻记录（EPOCHREALTIME，写前/写后区间） | 无 fork 取时；发光时刻不确定度 <1ms |
+| `tools/led_diff.py` / `led_analyze.py` | 亮灭差分定位绿点 / 亮度序列提取 | G 通道专属指纹（红灯/白平衡不干扰）；自动推荐 ROI |
+| `tools/led_eval.py` / `led_eval_full.py` | 跳变-帧对账（过渡帧法）/ 全跳变区间交叉验证 | 曝光 2.5ms 被切开的帧从亮度分数解码切割位置（单样本 ≤2.5ms） |
+| `tools/crop_zoom.py` | 帧局部放大查看 | 目视核对定位 |
+
 ## 4. 掌握标准（自查表）
 
 - [ ] 能画出 B9 数据流图：帧 → `predictor.update()` → 15B 包 → UART（并说出每步的时间量级）
@@ -98,6 +114,7 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | 测试手段分类与测量陷阱 | 附录 B《验证与测量手册》 |
 | 失败与教训（案例 19 / 20 / 21） | 附录 D《调试与实验方法论》 |
 | B10 优化验证（硬解 / RGA / 零拷贝） | 《B10优化验证报告》（附录 F）；工具登记见本文 §3 末 |
+| 绝对端到端延迟（LED 光参照，2026-10-01） | 《端到端延迟验证报告》；数据在 `E:\desk\logs\latency-probe\`；工具登记见本文 §3 末 |
 
 ## 6. 教学改造材料（teaching/，2026-09-23 全部由 AI 代写）
 

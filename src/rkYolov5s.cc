@@ -36,6 +36,51 @@ static unsigned char *read_model(const char * filename, int *model_size)
     return data;
 }
 
+//letterbox：进行缩放填充等操作
+static void letterbox(const cv::Mat &src, cv::Mat &dst, BOX_RECT &pads, float &scale,
+                      const cv::Size &target,
+                      const cv::Scalar &pad_color = cv::Scalar(114, 114, 114))
+{
+    //缩放比：从高和宽的比，取最小的那个
+    //目标尺寸和原始尺寸的比值
+    float sw = (float)target.width / (float)src.cols;
+    float sh = (float)target.height / (float)src.rows;
+    scale = std::min(sw, sh);
+
+    //缩放后实际尺寸
+    int new_w = (int)(src.cols * scale);
+    int new_h = (int)(src.rows * scale);
+
+    //如果缩放后尺寸和目标尺寸一样，就不进行填充
+    cv::Mat scaled;;
+    if (new_w == src.cols && new_h == src.rows)
+    {
+        scaled = src;
+    }
+    else
+    {
+        //缩放
+        cv::resize(src, scaled, cv::Size(new_w, new_h));
+    }
+
+    //居中：分两半进行计算
+    int dw      = target.width - new_w;
+    int dh      = target.height - new_h;
+    int left    = dw / 2;
+    int top   = dh / 2;
+
+    //赋予参数
+    cv::copyMakeBorder(scaled, dst, top, dh - top, left, dw - left,
+                        cv::BORDER_CONSTANT, pad_color);
+
+    //记录还原参数
+    pads.left   = left;
+    pads.right  = dw - left;
+    pads.top    = top;
+    pads.bottom = dh - top;
+}
+
+
 //七步init
 //1、读模型文件
 //2、rknn初始化
@@ -200,8 +245,33 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
     double ms_pre = 0.0, ms_run = 0.0;
 
     //预处理：
-    //这里输入图像数据
-    inputs[0].buf = orig_img.data;
+    //这里输入图像数据,用来缩放图像
+    int64_t t_pre = cv::getTickCount();
+    cv::Mat resized;
+    if (orig_img.cols == width && orig_img.rows == height
+            && orig_img.channels() == channel && orig_img.isContinuous())
+    {
+        //原通道不缩放
+        pads.left       = pads.right = pads.top = pads.bottom = 0;
+        scale_lb        = 1.0f;
+        inputs[0].buf   = orig_img.data;
+    }
+    else
+    {
+        //letterbox缩放
+        letterbox(orig_img, resized, pads, scale_lb, cv::Size(width, height));
+        inputs[0].buf = resized.data;
+    }
+    ms_pre = (cv::getTickCount() - t_pre) * 1000.0 / cv::getTickFrequency();
+
+    //验证letterbox参数
+
+    printf("[lb] scale=%.6f new=%dx%d pads=(l=%d, r=%d, t=%d, b=%d)\n",
+            scale_lb, width - pads.left - pads.right,
+            height - pads.top - pads.bottom,
+            pads.left, pads.right, pads.top, pads.bottom);
+
+
 
     //初始四部
     //数据提交
@@ -231,6 +301,19 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         printf("rknn_outputs_get error ret=%d\n", ret);
         rknn_outputs_release(ctx, io_num.n_output, outputs.data());
         return result;
+    }
+
+    //坐标还原
+    vb_result_t vb;
+
+    vb_to_original(vb.items, result.balls, pads, scale_lb);
+
+    //打印结果
+    for (int k = 0; k < (int)result.balls.size(); k++)
+    {
+        const vb_ball_t &b = result.balls[k];
+        printf("ball[%d]: cx=%.2f cy=%.2f radius=%.2f prop=%.2f\n",
+                k, b.cx, b.cy, b.radius, b.prop);
     }
 
     rknn_outputs_release(ctx, io_num.n_output, outputs.data());

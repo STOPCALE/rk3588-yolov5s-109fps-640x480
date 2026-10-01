@@ -47,6 +47,10 @@ private:
     //模型输入，从attrs推导
     int channel = 0, width = 0, height = 0;
 
+    //letterbox还原参数
+    BOX_RECT pads       = {};   //四条边补像素
+    float    scale_lb   = 1.0f; //缩放比
+
     //输出量化参数，init用
     std::vector<int32_t> out_zps;
     std::vector<float>   out_scales;

@@ -40,7 +40,7 @@ find_package(Threads REQUIRED)
 
 # //设置共用文件
 set(RKNN_COMMON_SRC
-        # src/postrocess.cc
+        src/postprocess.cc
         # src/preprocess.cc
         src/rkYolov5s.cc
 )

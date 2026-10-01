@@ -3,14 +3,14 @@
 
 #include <vector>
 #include "opencv2/core/core.hpp"
-// #include "p"
+#include "postprocess.h"
 
 struct FrameResult
 {
     cv::Mat image;
 
     //待会解封
-    // std::vector<vb_ball_t> balls;
+    std::vector<vb_ball_t> balls;
 };
 
 #endif

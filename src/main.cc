@@ -236,6 +236,7 @@ int main(int argc, char **argv)
         cv::Point start_pt(0, 0);           //本次跟踪起点
         bool has_start = false;
         bool prev_dok = false;
+        float land_vx = 0, land_vy = 0;     //落点外推速度(px/ms)：有检测帧更新、丢检测帧沿用
 
         //最新帧槽+采集线程
         FrameSlot slot;
@@ -537,12 +538,20 @@ int main(int argc, char **argv)
                         const cv::Point p25((int)(po.pred_cx + 0.5f), (int)(po.pred_cy + 0.5f));
                         cv::drawMarker(r.image, p25, cv::Scalar(255, 255, 0), cv::MARKER_TILTED_CROSS, 30, 3);
 
-                        const float vx = (po.pred_cx - po.cx) / (float)predictor.lead_ms;
-                        const float vy = (po.pred_cy - po.cy) / (float)predictor.lead_ms;
-                        cv::Point pf((int)po.cx, (int)po.cy);
+                        // 速度只在"有检测"帧更新：此时 pred = cx + v·lead，可反解出 v；
+                        // 丢检测帧沿用上次速度（否则 po.cx=0，外推线会从画面原点 (0,0) 起画）
+                        if (po.detect_ok)
+                        {
+                            land_vx = (po.pred_cx - po.cx) / (float)predictor.lead_ms;
+                            land_vy = (po.pred_cy - po.cy) / (float)predictor.lead_ms;
+                        }
+                        // 外推基准点 = 预测点回推一个 lead（有检测帧恰好 = 检测点）
+                        const float bx = po.pred_cx - land_vx * (float)predictor.lead_ms;
+                        const float by = po.pred_cy - land_vy * (float)predictor.lead_ms;
+                        cv::Point pf((int)bx, (int)by);
                         for (int ms = 100; ms <= 500; ms += 100)
                         {
-                            const cv::Point pn((int)(po.cx + vx * ms), (int)(po.cy + vy * ms));
+                            const cv::Point pn((int)(bx + land_vx * ms), (int)(by + land_vy * ms));
                             cv::line(r.image, pf, pn, cv::Scalar(255, 255, 0), 2);
                             pf = pn;
                         }

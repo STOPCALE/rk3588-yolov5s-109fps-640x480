@@ -64,6 +64,7 @@ g++ -Wall -Wextra -std=c++14 -Iinclude src/predictor_selftest.cc src/trajectory_
 | `src/cam_probe.cc` | 相机体检 | 换相机 / 换档位前 | 缓冲矩阵 + `v4l2-ctl` 独立实现交叉验证 |
 | `src/cam_record.cc` | 摄像头录像（建数据集） | 拍训练素材 | 预跑估真实帧率；MJPEG 直通（`CONVERT_RGB=0`）零损失存原图；ffmpeg 放全核不抢采集大核；录制时屏幕预览（独立线程，不拖采集） |
 | `tools/board.sh`（板载入口 `demo`） | 板子上敲 `demo cam/vis/test/lock/status/off` 的统一入口（已配 `~/bin/demo`） | 板子上日常使用（不在 PC 旁边时） | 包装 `run-demo.sh`（找安装目录+绑大核+锁频警告）；`readlink -f "$0"` 支持符号链接启动 |
+| `tools/pred-video.ps1` | **PC 一键出片**：上传→板端预测+标注→合成 mp4→`predictor_eval`→回传（包装完整流程） | 想快速看某段视频的轨迹预测效果时 | ssh 远程脚本用 PS 单引号包裹（防 `$` 被本地展开）；合成帧率=落盘帧数×源fps/源帧数（折算显示线程丢弃帧保真实速度）；失败保留板端现场 |
 
 ### B10 验证工具（2026-09-23，`tools/b10/`）
 

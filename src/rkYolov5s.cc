@@ -318,7 +318,7 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         heads[i].data   = (const int8_t *)outputs[i].buf;
         heads[i].grid_h = (int)output_attrs[i].dims[2];
         heads[i].grid_w = (int)output_attrs[i].dims[3];
-        heads[i].zp     = out_scales[i];
+        heads[i].zp     = out_zps[i];
         heads[i].scale  = out_scales[i];
     }
 

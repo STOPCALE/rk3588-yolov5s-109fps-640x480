@@ -47,7 +47,7 @@ int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
         const float   scale= heads[h].scale;
 
         //stride 反推，可变
-        const int stride = (float)model_w / (float)gw;
+        const float stride = (float)model_w / (float)gw;
 
         //阈值量化
         const int8_t thres_i8 = qnt_f32(conf_thresh, zp, scale);
@@ -93,8 +93,8 @@ int vb_decode(const vb_head_t heads[VB_HEAD_NUM], int model_w, int model_h,
                     float bw_raw = deqnt(data[idx + 2 * glen], zp, scale)  *2.0f;
                     float bh_raw = deqnt(data[idx + 3 * glen], zp, scale)  *2.0f;
 
-                    const float cx = (bx_raw * bx_raw * aw + j) * stride;   //球心x
-                    const float cy = (by_raw * by_raw * ah + i) * stride;   //球心y
+                    const float cx = (bx_raw + (float)j) * stride;   //球心x
+                    const float cy = (by_raw + (float)i) * stride;   //球心y
                     const float bw = (bw_raw * bw_raw * aw);                //球宽
                     const float bh = (bh_raw * bh_raw * ah);                //球高
 
@@ -168,7 +168,7 @@ int vb_nms(vb_result_t * result, float iou_thresh)
         for (size_t j = 0; j < boxes.size(); j++)
         {
             if (dead[j])    continue;
-            if (vb_iou(boxes[i], boxes[i]) > iou_thresh) dead[j] = 1;
+            if (vb_iou(boxes[i], boxes[j]) > iou_thresh) dead[j] = 1;
         }
     }
 

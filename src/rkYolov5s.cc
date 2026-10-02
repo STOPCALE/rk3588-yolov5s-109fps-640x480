@@ -266,12 +266,13 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
 
     //验证letterbox参数
 
-    printf("[lb] scale=%.6f new=%dx%d pads=(l=%d, r=%d, t=%d, b=%d)\n",
-            scale_lb, width - pads.left - pads.right,
-            height - pads.top - pads.bottom,
-            pads.left, pads.right, pads.top, pads.bottom);
-
-
+    if (verbose)
+    {
+        printf("[lb] scale=%.6f new=%dx%d pads(l=%d r=%d t=%d b=%d)\n",
+                scale_lb, width - pads.left - pads.right,
+                height - pads.top - pads.bottom,
+                pads.left, pads.right, pads.top, pads.bottom);
+    }
 
     //初始四部
     //数据提交
@@ -294,7 +295,6 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         outputs[i].is_prealloc  = 0;
     }
 
-    //还
     ret = rknn_outputs_get(ctx, io_num.n_output, outputs.data(), nullptr);
     if (ret < 0)
     {
@@ -303,17 +303,87 @@ FrameResult rkYolov5s::infer(cv::Mat &orig_img)
         return result;
     }
 
+    //筛选加解码，主要筛选io_num
+    if (io_num.n_output != VB_HEAD_NUM)
+    {
+        printf("infer：模型输出头数=%d, 当前解码只支持 %d 头\n",
+                    io_num.n_output, VB_HEAD_NUM);
+        rknn_outputs_release(ctx, io_num.n_output, outputs.data());
+        return result;
+    }
+
+    vb_head_t heads[VB_HEAD_NUM];
+    for (uint32_t i = 0; i < io_num.n_output; i++)
+    {
+        heads[i].data   = (const int8_t *)outputs[i].buf;
+        heads[i].grid_h = (int)output_attrs[i].dims[2];
+        heads[i].grid_w = (int)output_attrs[i].dims[3];
+        heads[i].zp     = out_scales[i];
+        heads[i].scale  = out_scales[i];
+    }
+
     //坐标还原
     vb_result_t vb;
 
+    //解码
+    int64_t t_dec = cv::getTickCount();
+    vb_decode(heads, width, height, box_conf_threshold, &vb);
+    double ms_dec = (cv::getTickCount() - t_dec) * 1000.0 / cv::getTickFrequency();
+
+    //NMS
+    const int   n_before    = (int)vb.items.size();
+    int64_t     t_nms       = cv::getTickCount();
+    vb_nms(&vb, nms_threshold);
+    double ms_nms = (cv::getTickCount() - t_nms) * 1000.0 / cv::getTickFrequency();
+
+    //可控显示
+    if (verbose)
+    {
+        printf("[post] 候选=%d -> NMS后=%d decode=%.3f ms nms=%.3f ms 合计=%.3f\n",
+                n_before, (int)vb.items.size(), ms_dec, ms_nms, ms_nms + ms_dec);
+    }
+
+
+
+
+
+
     vb_to_original(vb.items, result.balls, pads, scale_lb);
 
-    //打印结果
-    for (int k = 0; k < (int)result.balls.size(); k++)
+    //打印结
+    if (verbose)
     {
-        const vb_ball_t &b = result.balls[k];
-        printf("ball[%d]: cx=%.2f cy=%.2f radius=%.2f prop=%.2f\n",
-                k, b.cx, b.cy, b.radius, b.prop);
+        for (int k = 0; k < (int)result.balls.size(); k++)
+        {
+            const vb_ball_t &b = result.balls[k];
+            printf("[%d] cx=%.1f cy=%.1f r=%.1f prop=%.3f (原图坐标)\n",
+                    k, b.cx, b.cy, b.radius, b.prop);
+        }
+    }
+
+    //冒烟检测
+    if (verbose)
+    {
+        for (uint32_t i = 0; i < io_num.n_output; i++)
+        {
+            int8_t *p   = (int8_t *)outputs[i].buf;
+            int     n   = (int)outputs[i].size;
+            int8_t  mn  = 127;
+            int8_t  mx  = -128;
+            uint32_t h  = 2166136261u;
+            for (int k = 0; k < n; k++)
+            {
+                int8_t v =p[k];
+                if (p[k] < mn) mn = v;
+                if (p[k] > mx) mx = v;
+                h = (h ^ (uint8_t)v) *  16777619u;
+            }
+            printf("out[%u] size-%d int8=[%d, max=%d] real[min=%.4f, max=%.4f] hash=%08x\n",
+                    i, n, mn, mx,
+                (mn - out_zps[i]) * out_scales[i],
+                (mx - out_zps[i]) * out_scales[i],
+                h);
+        }
     }
 
     rknn_outputs_release(ctx, io_num.n_output, outputs.data());

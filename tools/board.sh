@@ -11,8 +11,11 @@
 #      demo cam [帧数] [更多参数...]     # 相机实时跑（默认 900 帧；**0=无限模式**，Ctrl+C 停）
 #      demo vis [帧数]                   # 相机录一段"带标注视频"，自动合成 mp4（默认 600 帧）
 #      demo video <视频路径> [帧数]      # 跑视频文件（默认 4000 帧）
-#      demo pic <图片路径> [循环次数]    # 跑单张图片（默认 200 次）#      demo rec   [秒数] [更多参数...]     # **录像**（默认一直录，Ctrl+C 停；控制台提示输出位置）
-#      demo rec   60 --jpg                  # 录 60 秒的**原始 JPEG 帧序列**（建数据集用）#      demo bg                           # **后台常驻**跑（相机无限模式；日志 /tmp/demo_run.log）
+#      demo land  on|off                 # 落点估计(LAND est)快捷开关：开=之后 cam/vis/video 都带 --land-est
+#      demo pic <图片路径> [循环次数]    # 跑单张图片（默认 200 次）
+#      demo rec   [秒数] [更多参数...]     # **录像**（默认一直录，Ctrl+C 停；控制台提示输出位置）
+#      demo rec   60 --jpg               # 录 60 秒的**原始 JPEG 帧序列**（建数据集用）
+#      demo bg                           # **后台常驻**跑（相机无限模式；日志 /tmp/demo_run.log）
 #      demo stop                         # 停止后台运行（兜底 pkill）
 #      demo test                         # 一键跑全部自测（现场编译 4 个工具）
 #      demo lock                         # 锁频（要 sudo；测性能前跑，重启后失效）
@@ -27,6 +30,12 @@ ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"   # 工程根目录（脚本在 <根
 RUNSH="$ROOT/tools/run-demo.sh"
 MODEL="./model/RK3588/best.rknn"           # 相对安装目录
 
+# 落点估计(LAND est)快捷开关：demo land on|off 修改（状态文件 ~/.demo_land；默认关）
+LAND_STATE="$HOME/.demo_land"
+land_is_on() { [ "$(cat "$LAND_STATE" 2>/dev/null || echo 0)" = "1" ]; }
+LANDARG=""
+land_is_on && LANDARG="--land-est"
+
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 
@@ -37,9 +46,9 @@ case "$cmd" in
     [ -n "${DISPLAY:-}" ] && SHOWARG="--show"     # 板子有桌面（DISPLAY 非空）就自动开实时窗口
     if [ "$frames" = "0" ] || [ "$frames" = "inf" ] || [ "$frames" = "forever" ]; then
         echo "[board] 无限模式（Ctrl+C 停止）"
-        exec bash "$RUNSH" "$MODEL" /dev/video0 1 --quiet --pipe --forever $SHOWARG "$@"
+        exec bash "$RUNSH" "$MODEL" /dev/video0 1 --quiet --pipe --forever $SHOWARG $LANDARG "$@"
     fi
-    exec bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe $SHOWARG "$@"
+    exec bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe $SHOWARG $LANDARG "$@"
     ;;
   vis)
     frames="${1:-600}"; [ $# -gt 0 ] && shift
@@ -52,7 +61,7 @@ case "$cmd" in
     out="${VIS_OUT:-/tmp/rknn_vis}"
     rm -rf "$out"; mkdir -p "$out"
     echo "[board] 录制 $frames 帧 -> $out"
-    bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe --vis "$out" $SHOWARG "$@"
+    bash "$RUNSH" "$MODEL" /dev/video0 "$frames" --quiet --pipe --vis "$out" $SHOWARG $LANDARG "$@"
     echo "[board] 合成 mp4 ..."
     if ffmpeg -y -framerate 60 -i "$out/f_%06d.jpg" -c:v libx264 -pix_fmt yuv420p -crf 23 "$out.mp4" -loglevel error; then
         echo "[board] ✅ 标注视频: $out.mp4"
@@ -64,12 +73,33 @@ case "$cmd" in
   video)
     file="${1:?用法: demo video <视频路径> [帧数]}"; [ $# -gt 0 ] && shift
     frames="${1:-4000}"; [ $# -gt 0 ] && shift
-    exec bash "$RUNSH" "$MODEL" "$file" "$frames" --quiet --fast --pipe "$@"
+    exec bash "$RUNSH" "$MODEL" "$file" "$frames" --quiet --fast --pipe $LANDARG "$@"
     ;;
   pic)
     file="${1:?用法: demo pic <图片路径> [循环次数]}"; [ $# -gt 0 ] && shift
     n="${1:-200}"; [ $# -gt 0 ] && shift
     exec bash "$RUNSH" "$MODEL" "$file" "$n" "$@"
+    ;;
+  land)
+    arg="${1:-}"
+    case "$arg" in
+      on|1)
+        echo 1 > "$LAND_STATE"
+        echo "[board] 落点估计(LAND est) 开关 = 开（之后 cam/vis/video 自动带 --land-est）"
+        echo "        提示：要肉眼可见需可视化 —— demo vis（录出看）或桌面下 demo cam（窗口）"
+        ;;
+      off|0)
+        echo 0 > "$LAND_STATE"
+        echo "[board] 落点估计(LAND est) 开关 = 关（默认）"
+        ;;
+      ""|status)
+        if land_is_on; then echo "[board] 落点估计(LAND est) 开关 = 开"; else echo "[board] 落点估计(LAND est) 开关 = 关（默认）"; fi
+        echo "        用法: demo land on | demo land off（不带参数=看状态）"
+        ;;
+      *)
+        echo "用法: demo land on | demo land off（不带参数=看状态）"; exit 1
+        ;;
+    esac
     ;;
   rec)
     # 录像（不跑模型）：默认 640x480@120 MJPG；秒数=0/缺省 → 一直录（Ctrl+C 停）
@@ -144,6 +174,9 @@ case "$cmd" in
     echo "== 相机设备 =="
     ls -l /dev/video[0-9]* 2>/dev/null || echo "（未检测到 /dev/video*）"
     echo
+    echo "== 落点估计开关 =="
+    if land_is_on; then echo "开（cam/vis/video 自动带 --land-est）"; else echo "关（默认）"; fi
+    echo
     echo "== 当前版本 =="
     git -C "$ROOT" log --oneline -1 2>/dev/null || echo "(非 git 目录?)"
     ;;
@@ -159,6 +192,7 @@ case "$cmd" in
   vis   [帧数]                 相机录标注视频→自动合成 mp4（默认 600）
   rec   [秒数] [更多参数]      录像（拍素材/建数据集；0或省略=一直录，Ctrl+C 停）
   video <视频文件> [帧数]      跑视频文件（默认 4000）
+  land  on|off                 落点估计(LAND est)快捷开关：开=之后 cam/vis/video 带 --land-est
   pic   <图片> [循环次数]      跑单张图片（默认 200 次）
   bg                          后台常驻跑（相机无限模式；日志 /tmp/demo_run.log）
   stop                        停止后台运行（兜底 pkill）

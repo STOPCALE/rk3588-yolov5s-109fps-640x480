@@ -81,7 +81,7 @@ int main(int argc, char **argv)
     int cam_w       = 640;
     int cam_h       = 480;
     int cam_fps     = 120;
-    bool quiet      = false;
+    bool quiet      = true;
     bool live       = false;                //--live:强制每秒状态行(默认在终端里跑就自动开)
     bool show    = true;
 

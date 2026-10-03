@@ -71,9 +71,9 @@ struct FrameSlot
 
 int main(int argc, char **argv)
 {
-    if (argc < 3 || argc > 24)
+    if (argc < 3 || argc > 26)
     {
-        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--cam-size WxH] [--cam-fps N] [--cam-yuyv] [--forever] [--show] [--live]\n", argv[0]);
+        printf("Usage: %s <model_path> <image_path|video|/dev/videoN> [frames=3] [--quiet] [--fast] [--pipe] [--disp ms] [--serial dev] [--pred-log file] [--vis dir] [--nogate] [--land-est] [--cam-size WxH] [--cam-fps N] [--cam-yuyv] [--forever] [--show] [--live]\n", argv[0]);
         return -1;
     }
 
@@ -87,6 +87,7 @@ int main(int argc, char **argv)
     const char *pred_log_path = nullptr; //--pred-log <文件>:每帧检测轨迹 CSV(B9 评估用)
     const char *vis_path = nullptr;      //--vis <文件>:写带标注的结果视频(B9 可视化)
     bool nogate = false;                 //--nogate:关闭目标锁定(对比用)
+    bool land_est = false;               //--land-est:显示落点估计(LAND(est));默认关,给了才画
     int  cam_w = 640, cam_h = 480;       //--cam-size WxH:摄像头分辨率(默认 VGA)
     int  cam_fps = 120;                  //--cam-fps N:摄像头帧率(默认 120)
     bool cam_yuyv = false;               //--cam-yuyv:用 YUYV 原始格式(默认 MJPG,高帧率必需)
@@ -103,6 +104,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--pred-log")== 0 && i + 1 <argc) pred_log_path = argv[++i];
         else if (strcmp(argv[i], "--vis")    == 0 && i + 1 <argc) vis_path = argv[++i];
         else if (strcmp(argv[i], "--nogate") == 0)               nogate = true;
+        else if (strcmp(argv[i], "--land-est") == 0)             land_est = true;
         else if (strcmp(argv[i], "--cam-size")== 0 && i + 1 <argc) { if (sscanf(argv[++i], "%dx%d", &cam_w, &cam_h) != 2) { cam_w = 640; cam_h = 480; } }
         else if (strcmp(argv[i], "--cam-fps")== 0 && i + 1 <argc) cam_fps = atoi(argv[++i]);
         else if (strcmp(argv[i], "--cam-yuyv")== 0)                cam_yuyv = true;
@@ -112,10 +114,10 @@ int main(int argc, char **argv)
         else                                    max_frames = atoi(argv[i]);
     }
     if (max_frames <= 0) max_frames = 3;    //防呆
-    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s gate = %d vis = %s forever = %d\n",
+    printf("frame = %d quiet = %d fast = %d pipe = %d disp = %d serial = %s predlog = %s gate = %d vis = %s forever = %d land-est = %d\n",
            max_frames, (int)quiet, (int)fast, (int)pipe, disp_ms,
            serial_dev ? serial_dev : "(off)", pred_log_path ? pred_log_path : "(off)",
-           (int)!nogate, vis_path ? vis_path : "(off)", (int)forever);     //回显
+           (int)!nogate, vis_path ? vis_path : "(off)", (int)forever, (int)land_est);     //回显
 
     //--show 只在流水线模式有意义；且需要图形界面（ssh 会话 DISPLAY 为空 → 自动忽略）
     if (show && !pipe)     { printf("[warn] --show 只在 --pipe 流水线模式生效——已忽略\n"); show = false; }
@@ -532,31 +534,35 @@ int main(int argc, char **argv)
                         cv::putText(r.image, "START", start_pt + cv::Point(12, -12), cv::FONT_HERSHEY_SIMPLEX, 1.1, cv::Scalar(255, 128, 0), 3);
                     }
 
-                    // 预测点(+25ms,青) 与 落点外推(0.1~0.5s,青点列)
+                    // 预测点(+25ms,青)
                     if (po.predict_ok)
                     {
                         const cv::Point p25((int)(po.pred_cx + 0.5f), (int)(po.pred_cy + 0.5f));
                         cv::drawMarker(r.image, p25, cv::Scalar(255, 255, 0), cv::MARKER_TILTED_CROSS, 30, 3);
 
-                        // 速度只在"有检测"帧更新：此时 pred = cx + v·lead，可反解出 v；
-                        // 丢检测帧沿用上次速度（否则 po.cx=0，外推线会从画面原点 (0,0) 起画）
-                        if (po.detect_ok)
+                        // 落点外推(0.1~0.5s,青点列):仅 --land-est 开启时画(默认关)
+                        if (land_est)
                         {
-                            land_vx = (po.pred_cx - po.cx) / (float)predictor.lead_ms;
-                            land_vy = (po.pred_cy - po.cy) / (float)predictor.lead_ms;
+                            // 速度只在"有检测"帧更新：此时 pred = cx + v·lead，可反解出 v；
+                            // 丢检测帧沿用上次速度（否则 po.cx=0，外推线会从画面原点 (0,0) 起画）
+                            if (po.detect_ok)
+                            {
+                                land_vx = (po.pred_cx - po.cx) / (float)predictor.lead_ms;
+                                land_vy = (po.pred_cy - po.cy) / (float)predictor.lead_ms;
+                            }
+                            // 外推基准点 = 预测点回推一个 lead（有检测帧恰好 = 检测点）
+                            const float bx = po.pred_cx - land_vx * (float)predictor.lead_ms;
+                            const float by = po.pred_cy - land_vy * (float)predictor.lead_ms;
+                            cv::Point pf((int)bx, (int)by);
+                            for (int ms = 100; ms <= 500; ms += 100)
+                            {
+                                const cv::Point pn((int)(bx + land_vx * ms), (int)(by + land_vy * ms));
+                                cv::line(r.image, pf, pn, cv::Scalar(255, 255, 0), 2);
+                                pf = pn;
+                            }
+                            cv::circle(r.image, pf, 10, cv::Scalar(255, 255, 0), 2);
+                            cv::putText(r.image, "LAND(est)", pf + cv::Point(14, -14), cv::FONT_HERSHEY_SIMPLEX, 1.1, cv::Scalar(255, 255, 0), 3);
                         }
-                        // 外推基准点 = 预测点回推一个 lead（有检测帧恰好 = 检测点）
-                        const float bx = po.pred_cx - land_vx * (float)predictor.lead_ms;
-                        const float by = po.pred_cy - land_vy * (float)predictor.lead_ms;
-                        cv::Point pf((int)bx, (int)by);
-                        for (int ms = 100; ms <= 500; ms += 100)
-                        {
-                            const cv::Point pn((int)(bx + land_vx * ms), (int)(by + land_vy * ms));
-                            cv::line(r.image, pf, pn, cv::Scalar(255, 255, 0), 2);
-                            pf = pn;
-                        }
-                        cv::circle(r.image, pf, 10, cv::Scalar(255, 255, 0), 2);
-                        cv::putText(r.image, "LAND(est)", pf + cv::Point(14, -14), cv::FONT_HERSHEY_SIMPLEX, 1.1, cv::Scalar(255, 255, 0), 3);
                     }
 
                     // 图像中心(偏差基准)

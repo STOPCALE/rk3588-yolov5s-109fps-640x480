@@ -34,7 +34,7 @@ private:
     float box_conf_threshold    = 0.25f;
 
     //诊断开关
-    bool verbose = true;
+    bool verbose = false;
 
     //rknn_init需要的值
     unsigned char           *model_data     = nullptr;

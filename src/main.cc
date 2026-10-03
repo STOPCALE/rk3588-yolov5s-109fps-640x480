@@ -352,25 +352,5 @@ int main(int argc, char **argv)
 
 
 
-    //读取图片
-    int64_t t = cv:: getTickCount();
-    cv::Mat img;
-    img = cv::imread(argv[2]);
-    if (img.empty()) { printf("读不到图片：%s\n", argv[2]); return -1; }
-
-    st_read.add((cv::getTickCount() - t) * 1000.0 / freq);
-
-    printf("image: %dx%d channels=%d\n", img.cols, img.rows, img.channels());
-
-    //推理一帧
-    t = cv::getTickCount();
-    FrameResult r = model.infer(img);
-    st_infer.add((cv::getTickCount() - t) * 1000.0 / freq);
-
-    printf("\n=========== 汇总（每帧耗时 ms）===========\n");
-    printf("  阶段        平均       最小       最大\n");
-    printf("  read    %8.2f   %8.2f   %8.2f\n", st_read.avg(),  st_read.mn,  st_read.mx);
-    printf("  infer   %8.2f   %8.2f   %8.2f\n", st_infer.avg(), st_infer.mn, st_infer.mx);
-
     return 0;
 }

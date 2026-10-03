@@ -83,7 +83,7 @@ int main(int argc, char **argv)
     int cam_fps     = 120;
     bool quiet      = false;
     bool live       = false;                //--live:强制每秒状态行(默认在终端里跑就自动开)
-    bool show    = false;
+    bool show    = true;
 
     //模型读取
     rkYolov5s model(argv[1]);

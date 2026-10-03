@@ -82,6 +82,8 @@ if ! freq_all_locked; then
         echo "  2) 想以后全自动，在板子上粘贴一次（输一次密码即可永久生效）："
         echo "       echo 'orangepi ALL=(ALL) NOPASSWD: /bin/bash /home/orangepi/newproj/tools/lock-freq.sh lock' | sudo tee /etc/sudoers.d/lock-freq"
     fi
+else
+    echo "==> 频率已锁定（跳过锁频）"
 fi
 
 # ---------------- 默认参数：best.rknn + 摄像头 ----------------
